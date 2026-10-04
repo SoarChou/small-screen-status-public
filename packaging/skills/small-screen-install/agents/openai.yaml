@@ -1,0 +1,4 @@
+interface:
+  display_name: "安装小屏应用"
+  short_description: "安装小屏任务监测应用、选择显示屏并设置随 ChatGPT 启动和退出"
+  default_prompt: "用 $small-screen-install 安装小屏应用并检查运行状态。"

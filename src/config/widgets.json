@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "widgets": [
+    {"id":"focus", "kind":"timer", "title":"专注计时", "subtitle":"专注工作或休息", "icon":"timer", "presets":[5,25,50]},
+    {"id":"notes", "kind":"note", "title":"随手记", "subtitle":"记录想法与下一步", "icon":"square.and.pencil"},
+    {"id":"checklist", "kind":"checklist", "title":"检查清单", "subtitle":"开始前确认，结束后记录", "icon":"checklist", "items":[
+      {"id":"input", "text":"确认输入材料与配置"},
+      {"id":"dependencies", "text":"检查资源与依赖"},
+      {"id":"outputs", "text":"保存需要的结果"},
+      {"id":"next", "text":"记录结果和下一轮安排"}
+    ]},
+    {"id":"clocks", "kind":"clock", "title":"时间对照", "subtitle":"本地时间与 UTC", "icon":"clock", "zones":[
+      {"title":"本地", "timezone":"local"}, {"title":"UTC", "timezone":"UTC"}
+    ]}
+  ]
+}
