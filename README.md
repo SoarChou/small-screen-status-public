@@ -4,15 +4,13 @@
 
 ## 界面预览
 
-下面是应用实际界面的截图，使用隔离预览模式和虚构任务生成，不含真实对话或设备信息。
-
 ![任务总览：同时显示 Codex、脚本进度和待处理状态](assets/screenshots/tasks.png)
 
 | 待处理提问 | 小工具 · 专注计时 |
 | :--- | :--- |
 | [![待处理提问界面](assets/screenshots/questions.png)](assets/screenshots/questions.png) | [![专注计时界面](assets/screenshots/tools.png)](assets/screenshots/tools.png) |
 
-点击下方图片可查看原图。待处理截图演示的是 Codex 内置提问，回答需复制到原对话提交；通过 `$small-screen-ask` 发起的新问题可以直接在小屏提交。
+待处理截图演示的是 Codex 内置提问，回答需复制到原对话提交；通过 `$small-screen-ask` 发起的新问题可以直接在小屏提交。
 
 ## 获取与安装
 
