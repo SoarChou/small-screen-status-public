@@ -2,6 +2,18 @@
 
 面向手机大小副屏的 macOS 原生状态窗口。它把 Codex 本地任务、脚本进度和需要处理的提问放在一处，并提供计时、笔记、清单等小工具。窗口按 macOS 给出的显示区域排版，不需要调整系统分辨率；默认选择面积最小的副屏，不显示 Dock 图标。
 
+## 界面预览
+
+下面是应用实际界面的截图，使用隔离预览模式和虚构任务生成，不含真实对话或设备信息。
+
+![任务总览：同时显示 Codex、脚本进度和待处理状态](assets/screenshots/tasks.png)
+
+| 待处理提问 | 小工具 · 专注计时 |
+| :--- | :--- |
+| [![待处理提问界面](assets/screenshots/questions.png)](assets/screenshots/questions.png) | [![专注计时界面](assets/screenshots/tools.png)](assets/screenshots/tools.png) |
+
+点击下方图片可查看原图。待处理截图演示的是 Codex 内置提问，回答需复制到原对话提交；通过 `$small-screen-ask` 发起的新问题可以直接在小屏提交。
+
 ## 获取与安装
 
 从 [Releases](https://github.com/SoarChou/small-screen-status-public/releases) 下载 `SmallScreenStatus-*-macOS.zip`，解压后双击 `install.command`。安装程序将应用放到 `~/Applications/`，可设置随本机 ChatGPT/Codex 启动和退出；无需管理员权限。另有 `small-screen-install-*.zip`，可让 agent 使用随包附带的安装 skill。
