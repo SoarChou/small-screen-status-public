@@ -71,6 +71,7 @@ struct Dashboard: View {
     @State private var hoverList = false
     @State private var lastTurn = Date.distantPast
     private let sourceOrder = ["Codex", "DSH", "脚本"]
+    private let rotationInterval: TimeInterval = 20
     var sources: [String] { sourceOrder.filter { source in model.tasks.contains { $0.source == source } } }
     private var slots: [TaskSlot] {
         model.tasks.enumerated().compactMap { index, task in
@@ -81,22 +82,24 @@ struct Dashboard: View {
     var currentPage: Int { min(page, pageCount - 1) }
     private var visibleSlots: [TaskSlot] { Array(slots.dropFirst(currentPage * 3).prefix(3)) }
     private func manualChoice() { manualUntil = model.now.addingTimeInterval(60); lastTurn = model.now }
+    private func showPage(_ next: Int) {
+        manualChoice()
+        if reduceMotion { page = next }
+        else { withAnimation(.easeInOut(duration: 0.4)) { page = next } }
+    }
+    private func showSource(_ next: String?) {
+        manualChoice()
+        let change = { selectedSource = next; page = 0; model.clearPin() }
+        if reduceMotion { change() }
+        else { withAnimation(.easeInOut(duration: 0.4), change) }
+    }
     private func stepRotation() {
         guard model.tab == "tasks", model.pinnedID == nil, model.attentionAlert == nil,
-              !hoverList, !reduceMotion, model.now >= manualUntil else { return }
+              pageCount > 1, !hoverList, !reduceMotion, model.now >= manualUntil else { return }
         if lastTurn == .distantPast { lastTurn = model.now; return }
-        guard model.now.timeIntervalSince(lastTurn) >= 9 else { return }
+        guard model.now.timeIntervalSince(lastTurn) >= rotationInterval else { return }
         lastTurn = model.now
-        let nextPage = (currentPage + 1) % pageCount
-        withAnimation(.easeInOut(duration: 0.26)) {
-            if selectedSource != nil, currentPage + 1 < pageCount { page += 1; return }
-            page = 0
-            if sources.count > 1 {
-                if let source = selectedSource, let index = sources.firstIndex(of: source) {
-                    selectedSource = sources[(index + 1) % sources.count]
-                } else { selectedSource = sources[0] }
-            } else if pageCount > 1 { page = nextPage }
-        }
+        withAnimation(.easeInOut(duration: 0.4)) { page = (currentPage + 1) % pageCount }
     }
     var body: some View {
         GeometryReader { geo in
@@ -110,11 +113,15 @@ struct Dashboard: View {
                     if let task = model.pinnedTask {
                         FocusPanel(model: model, task: task, unit: unit)
                     } else if !model.tasks.isEmpty {
-                        VStack(spacing: 9 * unit) {
-                            ForEach(visibleSlots) { slot in
-                                TaskRow(model: model, task: slot.task, position: slot.position,
-                                        unit: unit, compact: visibleSlots.count == 3)
+                        ZStack {
+                            VStack(spacing: 9 * unit) {
+                                ForEach(visibleSlots) { slot in
+                                    TaskRow(model: model, task: slot.task, position: slot.position,
+                                            unit: unit, compact: visibleSlots.count == 3)
+                                }
                             }
+                            .id("\(selectedSource ?? "all"):\(currentPage)")
+                            .transition(.opacity)
                         }.frame(maxHeight: .infinity).onHover { hoverList = $0 }
                     } else {
                         VStack(spacing: 15 * unit) {
@@ -205,7 +212,7 @@ struct Dashboard: View {
     func taskStrip(size: CGFloat) -> some View {
         HStack(spacing: 9) {
             Button {
-                selectedSource = nil; page = 0; manualChoice(); model.clearPin()
+                showSource(nil)
             } label: { Text("总览").font(.system(size: 18 * size, weight: .medium)) }
                 .buttonStyle(ControlStyle(selected: model.pinnedID == nil && selectedSource == nil))
                 .accessibilityLabel("总览，取消固定监测与分组")
@@ -216,8 +223,7 @@ struct Dashboard: View {
                             ForEach(sources, id: \.self) { source in
                                 let count = model.tasks.filter { $0.source == source }.count
                                 Button {
-                                    selectedSource = selectedSource == source ? nil : source
-                                    page = 0; manualChoice(); model.clearPin()
+                                    showSource(selectedSource == source ? nil : source)
                                 } label: {
                                     HStack(spacing: 6 * size) {
                                         Circle().fill(sourceColor(source)).frame(width: 7 * size, height: 7 * size)
@@ -268,16 +274,16 @@ struct Dashboard: View {
             } else if model.tab == "tasks", pageCount > 1 {
                 if pageCount <= 8 {
                     ForEach(0..<pageCount, id: \.self) { index in
-                        Button { page = index; manualChoice() } label: {
+                        Button { showPage(index) } label: {
                             Capsule().fill(index == currentPage ? Theme.accent : Theme.muted.opacity(0.45))
                                 .frame(width: index == currentPage ? 17 * size : 6 * size, height: 6 * size)
                         }.accessibilityLabel("第 \(index + 1) 页，共 \(pageCount) 页")
                     }
                 } else {
-                    Button("‹") { page = (currentPage + pageCount - 1) % pageCount; manualChoice() }
+                    Button("‹") { showPage((currentPage + pageCount - 1) % pageCount) }
                         .accessibilityLabel("上一页任务")
                     Text("\(currentPage + 1) / \(pageCount)").monospacedDigit()
-                    Button("›") { page = (currentPage + 1) % pageCount; manualChoice() }
+                    Button("›") { showPage((currentPage + 1) % pageCount) }
                         .accessibilityLabel("下一页任务")
                 }
             } else if model.tab == "tasks", let source = selectedSource {

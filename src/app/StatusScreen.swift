@@ -1,5 +1,9 @@
 import Cocoa
+import Darwin
 import SwiftUI
+
+@_silgen_name("flock")
+private func lockFile(_ descriptor: Int32, _ operation: Int32) -> Int32
 
 final class DisplayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -24,12 +28,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var preferredDisplay: String?
     var displayMenu: NSMenu!
     var hotkeys: Hotkeys?
+    private var instanceLock: Int32 = -1
+    private var didStart = false
+    private func claimInstance() -> Bool {
+        guard previewRoot == nil else { return true }
+        do { try FileManager.default.createDirectory(at: model.root, withIntermediateDirectories: true) }
+        catch { return false }
+        let path = model.root.appendingPathComponent("app.lock").path
+        let descriptor = Darwin.open(path, O_CREAT | O_RDWR, 0o600)
+        guard descriptor >= 0 else { return false }
+        guard lockFile(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            Darwin.close(descriptor)
+            return false
+        }
+        instanceLock = descriptor
+        return true
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard claimInstance() else { NSApplication.shared.terminate(nil); return }
         installEditingMenu()
         preferredDisplay = UserDefaults.standard.string(forKey: "preferredDisplay")
         let savedScale = UserDefaults.standard.double(forKey: "fontScale")
         model.scale = savedScale > 0 ? CGFloat(savedScale) : 1
         model.start()
+        didStart = true
         if previewRoot != nil { model.tab = "interactions" }
         window = DisplayWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         window.title = previewRoot == nil ? "小屏任务状态" : "小屏交互预览（测试数据）"
@@ -160,11 +182,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func smaller() { model.scale = max(0.75, model.scale - 0.1); UserDefaults.standard.set(Double(model.scale), forKey: "fontScale") }
     @objc func quit() { NSApplication.shared.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) {
+        guard didStart else { return }
         if let editor = window?.firstResponder as? NSTextView { editor.unmarkText() }
         window?.makeFirstResponder(nil)
         model.timer?.invalidate()
         model.saveWidgets(); model.saveReplyDrafts()
         hotkeys?.stop(); worker?.terminate(); try? workerLog?.close()
+        if instanceLock >= 0 { _ = lockFile(instanceLock, LOCK_UN); Darwin.close(instanceLock) }
     }
 }
 
