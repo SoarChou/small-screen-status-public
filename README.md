@@ -1,6 +1,10 @@
 # Small Screen Status（小屏任务状态）
 
+<img src="assets/AppIcon-preview.png" alt="Small Screen Status 图标" width="88">
+
 面向手机大小副屏的 macOS 原生状态窗口。它把 Codex 本地任务、脚本进度和需要处理的提问放在一处，并提供计时、笔记、清单等小工具。窗口按 macOS 给出的显示区域排版，不需要调整系统分辨率；默认选择面积最小的副屏，不显示 Dock 图标。
+
+应用安装在 `~/Applications/Small Screen Status.app`。运行时可从主屏菜单栏的叠屏图标重新显示窗口或选择副屏；再次打开应用也会重新显示窗口。
 
 ## 界面预览
 

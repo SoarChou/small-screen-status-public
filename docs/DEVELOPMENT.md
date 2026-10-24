@@ -1,5 +1,7 @@
 # 开发与发布
 
+应用和菜单栏共用 `src/app/Brand.swift` 中的叠屏符号。修改符号或图标底色后，先运行 `./scripts/generate_icon.sh` 更新跟踪的 `assets/AppIcon.icns` 和预览图，再构建应用。
+
 ## 目录
 
 | 路径 | 内容 |

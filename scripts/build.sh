@@ -14,6 +14,7 @@ if [[ -n "$sdk" ]]; then sdk_args=(-sdk "$sdk"); export SDKROOT="$sdk"; print "U
 cp "$project_dir"/src/cli/*.py "$project_dir/src/config/widgets.json" "$staging/Contents/Resources/Scripts/"
 cp "$project_dir/src/config/widgets.json" "$staging/Contents/Resources/widgets.json"
 cp "$project_dir/docs/EXTENSIONS.md" "$staging/Contents/Resources/EXTENSIONS.md"
+cp "$project_dir/assets/AppIcon.icns" "$staging/Contents/Resources/AppIcon.icns"
 cat > "$staging/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,10 +22,12 @@ cat > "$staging/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>SmallScreenStatus</string>
 <key>CFBundleIdentifier</key><string>local.soar.small-screen-status</string>
 <key>CFBundleName</key><string>Small Screen Status</string>
+<key>CFBundleDisplayName</key><string>Small Screen Status</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.3.1</string>
+<key>CFBundleShortVersionString</key><string>1.3.2</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleVersion</key><string>6</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

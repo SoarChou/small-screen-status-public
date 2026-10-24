@@ -221,7 +221,7 @@ def main(argv=None):
     if not args.no_launch:
         run(['/usr/bin/open', '-g', app])
     print(json.dumps({'status': 'installed', **plan}, ensure_ascii=False, indent=2))
-    print('菜单栏 ◉ → 选择显示屏。个人内容保存在 ~/Library/Application Support/SmallScreenStatus/。')
+    print('主屏菜单栏叠屏图标 → 选择显示屏。个人内容保存在 ~/Library/Application Support/SmallScreenStatus/。')
 
 
 if __name__ == '__main__':

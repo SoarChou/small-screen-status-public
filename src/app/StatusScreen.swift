@@ -61,8 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         window.contentView = NSHostingView(rootView: Dashboard(model: model))
         window.backgroundColor = .black
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "◉"
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = BrandGlyph.menuBarImage()
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.setAccessibilityLabel("小屏任务状态")
         let menu = NSMenu()
         for (title, action, key) in [("显示小屏窗口", #selector(showWindow), ""),
                                      ("任务总览", #selector(overview), "0"),
@@ -175,6 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showWindow()
     }
     @objc func showWindow() { placeWindow(); if model.displayAvailable { window.orderFrontRegardless() } }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showWindow()
+        return true
+    }
     @objc func overview() { model.clearPin(); model.tab = "tasks"; showWindow() }
     @objc func tools() { model.tab = "tools"; showWindow() }
     @objc func hideWindow() { window.orderOut(nil) }

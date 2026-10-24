@@ -9,7 +9,7 @@ description: 在 Mac 上安装、更新或检查可分享的 Small Screen Status
 
 入口是本 skill 的 `scripts/install.py`。它优先使用随分享包一起提供的 `install.py`；独立 skill 则解压 `assets/SmallScreenStatus-macOS.zip`，安装完成后仍从稳定应用路径运行。用户提供了不同发布包时，用 `--package /absolute/path/to/package.zip` 或解压后的目录，不在用户其他目录递归搜索。
 
-先运行入口加 `--dry-run`，检查架构、签名完整性和实际安装位置。默认安装 `~/Applications/Small Screen Status.app`、三个配套 skill（已有同名 skill 保留）及当前用户登录启动项。登录 Mac 后独立启动；菜单栏 `◉ → 选择显示屏` 可以改目标，自动模式选择最小副屏，只有主屏时保持隐藏。用户指定屏幕时传 `--display '屏幕名称'`。只有明确要求跟随 ChatGPT/Codex 启停时才传 `--host-app /absolute/path/ChatGPT.app`。不要默认覆盖主屏。
+先运行入口加 `--dry-run`，检查架构、签名完整性和实际安装位置。默认安装 `~/Applications/Small Screen Status.app`、三个配套 skill（已有同名 skill 保留）及当前用户登录启动项。登录 Mac 后独立启动；主屏菜单栏的叠屏图标可打开“选择显示屏”改目标，自动模式选择最小副屏，只有主屏时保持隐藏。用户指定屏幕时传 `--display '屏幕名称'`。只有明确要求跟随 ChatGPT/Codex 启停时才传 `--host-app /absolute/path/ChatGPT.app`。不要默认覆盖主屏。
 
 执行入口（不加 `--dry-run`）安装，再加 `--check` 查看安装版本、启动项与运行状态。`--no-autostart` 取消自动启动，`--no-skills` 跳过配套 skill，`--app-dir` 指定应用目录，`--python` 指定已有 Python 3.9+ 解释器。安装后的工具位于应用的 `Contents/Resources/Scripts/`；可选辅助监听器位于 `Contents/Resources/Tools/`。
 

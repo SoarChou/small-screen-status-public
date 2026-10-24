@@ -53,6 +53,9 @@ def main():
         run(install_args)
         app = app_dir / 'Small Screen Status.app'
         assert app.is_dir()
+        with (app / 'Contents/Info.plist').open('rb') as source:
+            assert plistlib.load(source).get('CFBundleIconFile') == 'AppIcon'
+        assert (app / 'Contents/Resources/AppIcon.icns').is_file()
         assert (skills / 'small-screen-tools/SKILL.md').read_text() == 'Existing personal skill'
         assert (skills / 'small-screen-install/assets/SmallScreenStatus-macOS.zip').is_file()
         for relative in ['Contents/MacOS/SmallScreenStatus', 'Contents/Resources/Tools/ChatGPTSmallScreenLauncher']:
