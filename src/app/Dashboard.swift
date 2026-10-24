@@ -13,6 +13,20 @@ struct ControlStyle: ButtonStyle {
     }
 }
 
+private func sourceColor(_ source: String) -> Color {
+    switch source {
+    case "DSH": return Color(red: 0.55, green: 0.72, blue: 0.85)
+    case "脚本": return Color(red: 0.74, green: 0.67, blue: 0.83)
+    default: return Theme.accent
+    }
+}
+
+private struct TaskSlot: Identifiable {
+    let position: Int
+    let task: TaskInfo
+    var id: String { task.id }
+}
+
 private struct TextWidth: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
@@ -50,13 +64,40 @@ struct MarqueeText: View {
 
 struct Dashboard: View {
     @ObservedObject var model: Model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selectedSource: String?
     @State private var page = 0
     @State private var manualUntil = Date.distantPast
     @State private var hoverList = false
-    var pageCount: Int { max(1, (model.tasks.count + 2) / 3) }
-    var currentPage: Int { page % pageCount }
-    var visibleTasks: [TaskInfo] { Array(model.tasks.dropFirst(currentPage * 3).prefix(3)) }
-    var rotationTick: Int { Int(model.now.timeIntervalSince1970 / 12) }
+    @State private var lastTurn = Date.distantPast
+    private let sourceOrder = ["Codex", "DSH", "脚本"]
+    var sources: [String] { sourceOrder.filter { source in model.tasks.contains { $0.source == source } } }
+    private var slots: [TaskSlot] {
+        model.tasks.enumerated().compactMap { index, task in
+            selectedSource == nil || task.source == selectedSource ? TaskSlot(position: index + 1, task: task) : nil
+        }
+    }
+    var pageCount: Int { max(1, (slots.count + 2) / 3) }
+    var currentPage: Int { min(page, pageCount - 1) }
+    private var visibleSlots: [TaskSlot] { Array(slots.dropFirst(currentPage * 3).prefix(3)) }
+    private func manualChoice() { manualUntil = model.now.addingTimeInterval(60); lastTurn = model.now }
+    private func stepRotation() {
+        guard model.tab == "tasks", model.pinnedID == nil, model.attentionAlert == nil,
+              !hoverList, !reduceMotion, model.now >= manualUntil else { return }
+        if lastTurn == .distantPast { lastTurn = model.now; return }
+        guard model.now.timeIntervalSince(lastTurn) >= 9 else { return }
+        lastTurn = model.now
+        let nextPage = (currentPage + 1) % pageCount
+        withAnimation(.easeInOut(duration: 0.26)) {
+            if selectedSource != nil, currentPage + 1 < pageCount { page += 1; return }
+            page = 0
+            if sources.count > 1 {
+                if let source = selectedSource, let index = sources.firstIndex(of: source) {
+                    selectedSource = sources[(index + 1) % sources.count]
+                } else { selectedSource = sources[0] }
+            } else if pageCount > 1 { page = nextPage }
+        }
+    }
     var body: some View {
         GeometryReader { geo in
             let unit = min(geo.size.width / 1080, geo.size.height / 540)
@@ -70,16 +111,16 @@ struct Dashboard: View {
                         FocusPanel(model: model, task: task, unit: unit)
                     } else if !model.tasks.isEmpty {
                         VStack(spacing: 9 * unit) {
-                            ForEach(visibleTasks) { task in
-                                TaskRow(model: model, task: task, position: (model.orderedIDs.firstIndex(of: task.id) ?? 0) + 1,
-                                        unit: unit, compact: visibleTasks.count == 3)
+                            ForEach(visibleSlots) { slot in
+                                TaskRow(model: model, task: slot.task, position: slot.position,
+                                        unit: unit, compact: visibleSlots.count == 3)
                             }
                         }.frame(maxHeight: .infinity).onHover { hoverList = $0 }
                     } else {
                         VStack(spacing: 15 * unit) {
                             Image(systemName: "rectangle.stack").font(.system(size: 44 * size)).foregroundColor(Theme.accent)
                             Text(model.stale ? "正在连接任务" : "暂时没有运行中的任务").font(.system(size: 33 * size, weight: .semibold))
-                            Text("Codex 和脚本开始后会自动出现在这里").font(.system(size: 24 * size)).foregroundColor(Theme.muted)
+                            Text("选中的来源有任务时会自动出现在这里").font(.system(size: 24 * size)).foregroundColor(Theme.muted)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else if model.tab == "interactions" {
@@ -91,7 +132,19 @@ struct Dashboard: View {
             }
             .padding(.horizontal, 28 * unit).padding(.top, 18 * unit).padding(.bottom, 16 * unit)
             .frame(width: geo.size.width, height: geo.size.height)
-            .background(LinearGradient(colors: [Theme.surface, Theme.background], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .background {
+                ZStack {
+                    Theme.background
+                    LinearGradient(colors: [Theme.accent.opacity(0.045), .clear], startPoint: .topLeading, endPoint: .center)
+                    Canvas { context, area in
+                        var grid = Path()
+                        stride(from: CGFloat(0), through: area.height, by: 44 * unit).forEach { y in
+                            grid.move(to: CGPoint(x: 0, y: y)); grid.addLine(to: CGPoint(x: area.width, y: y))
+                        }
+                        context.stroke(grid, with: .color(Theme.ink.opacity(0.035)), lineWidth: 0.5)
+                    }.accessibilityHidden(true)
+                }
+            }
             .foregroundColor(Theme.ink)
             .allowsHitTesting(model.attentionAlert == nil)
             .disabled(model.attentionAlert != nil)
@@ -104,19 +157,24 @@ struct Dashboard: View {
             }.animation(.easeOut(duration: 0.25), value: model.attentionAlert?.id)
         }
         .preferredColorScheme(.dark)
-        .onChange(of: rotationTick) { _ in
-            if model.attentionAlert == nil, model.tab == "tasks", model.pinnedID == nil, pageCount > 1, model.now > manualUntil, !hoverList {
-                withAnimation(.easeInOut(duration: 0.2)) { page = (currentPage + 1) % pageCount }
+        .onAppear { lastTurn = model.now }
+        .onChange(of: model.now) { _ in stepRotation() }
+        .onChange(of: model.orderedIDs) { _ in page = min(currentPage, pageCount - 1) }
+        .onChange(of: sources) { next in
+            if next.count <= 1 || selectedSource.map({ !next.contains($0) }) == true {
+                selectedSource = nil; page = 0
             }
         }
-        .onChange(of: model.orderedIDs) { _ in page = min(currentPage, pageCount - 1) }
     }
     func header(size: CGFloat) -> some View {
         HStack(spacing: 13 * size) {
             Image(systemName: "square.stack.3d.up").font(.system(size: 23 * size, weight: .medium)).foregroundColor(Theme.accent)
             Text(model.tab == "tasks" ? "任务监测" : (model.tab == "interactions" ? "待处理" : "小工具")).font(.system(size: 25 * size, weight: .semibold))
             if model.tab == "tasks" {
-                Text("\(model.state?.active_count ?? 0) 运行").font(.system(size: 17 * size)).foregroundColor(Theme.muted)
+                HStack(spacing: 6 * size) {
+                    Circle().fill(Theme.accent).frame(width: 6 * size, height: 6 * size)
+                    Text("\(model.activeCount) LIVE").tracking(1.1 * size)
+                }.font(.system(size: 14 * size, weight: .medium, design: .monospaced)).foregroundColor(Theme.muted)
             }
             Spacer()
             HStack(spacing: 5) {
@@ -128,27 +186,64 @@ struct Dashboard: View {
                 Button { model.tab = "tools" } label: { Label("工具", systemImage: "square.grid.2x2") }
                     .buttonStyle(ControlStyle(selected: model.tab == "tools"))
             }.font(.system(size: 18 * size, weight: .medium))
+            Menu {
+                ForEach(sourceOrder, id: \.self) { source in
+                    Button { model.toggleSource(source) } label: {
+                        Label(source, systemImage: model.sourceEnabled(source) ? "checkmark.circle.fill" : "circle")
+                    }
+                }
+            } label: {
+                Label("来源", systemImage: "line.3.horizontal.decrease")
+                    .font(.system(size: 17 * size, weight: .medium))
+                    .foregroundColor(Theme.muted)
+                    .padding(.horizontal, 10 * size).padding(.vertical, 8 * size)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.elevated.opacity(0.55)))
+            }.menuStyle(.borderlessButton).fixedSize()
             Text(model.now, style: .time).font(.system(size: 22 * size, design: .monospaced)).foregroundColor(Theme.muted)
         }
     }
     func taskStrip(size: CGFloat) -> some View {
         HStack(spacing: 9) {
-            Button { model.clearPin() } label: { Text("总览").font(.system(size: 18 * size, weight: .medium)) }
-                .buttonStyle(ControlStyle(selected: model.pinnedID == nil)).accessibilityLabel("总览，取消固定监测")
+            Button {
+                selectedSource = nil; page = 0; manualChoice(); model.clearPin()
+            } label: { Text("总览").font(.system(size: 18 * size, weight: .medium)) }
+                .buttonStyle(ControlStyle(selected: model.pinnedID == nil && selectedSource == nil))
+                .accessibilityLabel("总览，取消固定监测与分组")
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 9) {
-                        ForEach(Array(model.tasks.enumerated()), id: \.element.id) { index, task in
-                            Button { model.pin(task) } label: {
+                        if sources.count > 1 {
+                            ForEach(sources, id: \.self) { source in
+                                let count = model.tasks.filter { $0.source == source }.count
+                                Button {
+                                    selectedSource = selectedSource == source ? nil : source
+                                    page = 0; manualChoice(); model.clearPin()
+                                } label: {
+                                    HStack(spacing: 6 * size) {
+                                        Circle().fill(sourceColor(source)).frame(width: 7 * size, height: 7 * size)
+                                        Text(source)
+                                        Text("\(count)").font(.system(size: 15 * size, design: .monospaced))
+                                    }
+                                    .font(.system(size: 17 * size, weight: selectedSource == source ? .semibold : .medium))
+                                    .foregroundColor(selectedSource == source ? sourceColor(source) : Theme.muted)
+                                    .padding(.horizontal, 11 * size).padding(.vertical, 8 * size)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(sourceColor(source).opacity(selectedSource == source ? 0.15 : 0.06)))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(sourceColor(source).opacity(selectedSource == source ? 0.38 : 0.13), lineWidth: 1))
+                                }.buttonStyle(.plain).accessibilityLabel("\(source)，\(count) 个任务")
+                            }
+                            Rectangle().fill(Theme.line).frame(width: 1, height: 20 * size)
+                        }
+                        ForEach(slots) { slot in
+                            Button { model.pin(slot.task); manualChoice() } label: {
                                 HStack(spacing: 8) {
-                                    Text("\(index + 1)").font(.system(size: 17 * size, weight: .semibold, design: .monospaced))
-                                    Text(task.title).font(.system(size: 18 * size, weight: .medium)).lineLimit(1).frame(maxWidth: 210 * size)
-                                    if model.pinnedID == task.id { Image(systemName: "pin.fill").font(.system(size: 13 * size)) }
+                                    Text("\(slot.position)").font(.system(size: 17 * size, weight: .semibold, design: .monospaced))
+                                    Text(slot.task.title).font(.system(size: 18 * size, weight: .medium)).lineLimit(1).frame(maxWidth: 210 * size)
+                                    if model.pinnedID == slot.id { Image(systemName: "pin.fill").font(.system(size: 13 * size)) }
                                 }
                             }
-                            .id(task.id).buttonStyle(ControlStyle(selected: model.pinnedID == task.id))
-                            .help("固定监测 5 分钟 · \(task.title)")
-                            .accessibilityLabel("固定监测 \(index + 1)：\(task.title)")
+                            .id(slot.id).buttonStyle(ControlStyle(selected: model.pinnedID == slot.id))
+                            .help("固定监测 5 分钟 · \(slot.task.title)")
+                            .accessibilityLabel("固定监测 \(slot.position)：\(slot.task.title)")
                         }
                     }
                 }
@@ -171,11 +266,22 @@ struct Dashboard: View {
             if model.tab == "tasks", let until = model.pinUntil {
                 Text("固定 \(durationText(until.timeIntervalSince(model.now)))").monospacedDigit()
             } else if model.tab == "tasks", pageCount > 1 {
-                Button("‹") { page = (currentPage + pageCount - 1) % pageCount; manualUntil = model.now.addingTimeInterval(30) }
-                    .accessibilityLabel("上一页任务")
-                Text("\(currentPage + 1) / \(pageCount)").monospacedDigit()
-                Button("›") { page = (currentPage + 1) % pageCount; manualUntil = model.now.addingTimeInterval(30) }
-                    .accessibilityLabel("下一页任务")
+                if pageCount <= 8 {
+                    ForEach(0..<pageCount, id: \.self) { index in
+                        Button { page = index; manualChoice() } label: {
+                            Capsule().fill(index == currentPage ? Theme.accent : Theme.muted.opacity(0.45))
+                                .frame(width: index == currentPage ? 17 * size : 6 * size, height: 6 * size)
+                        }.accessibilityLabel("第 \(index + 1) 页，共 \(pageCount) 页")
+                    }
+                } else {
+                    Button("‹") { page = (currentPage + pageCount - 1) % pageCount; manualChoice() }
+                        .accessibilityLabel("上一页任务")
+                    Text("\(currentPage + 1) / \(pageCount)").monospacedDigit()
+                    Button("›") { page = (currentPage + 1) % pageCount; manualChoice() }
+                        .accessibilityLabel("下一页任务")
+                }
+            } else if model.tab == "tasks", let source = selectedSource {
+                Text("\(source) · 点击总览查看全部").lineLimit(1)
             } else { Text("本地更新 · 字号 ±") }
         }.buttonStyle(.plain).font(.system(size: 16 * size)).foregroundColor(Theme.muted)
     }
@@ -209,8 +315,12 @@ struct TaskRow: View {
                     Circle().fill(task.color).frame(width: 7 * unit, height: 7 * unit)
                     Text(task.statusLabel).font(.system(size: (compact ? 24 : 30) * size, weight: .semibold))
                 }.foregroundColor(task.color)
-                Text(task.stage == task.statusLabel ? task.source : "\(task.source) · \(task.stage)")
-                    .font(.system(size: (compact ? 19 : 22) * size)).foregroundColor(Theme.muted).lineLimit(1)
+                Text(task.source).font(.system(size: (compact ? 18 : 20) * size, weight: .medium))
+                    .foregroundColor(sourceColor(task.source)).lineLimit(1)
+                if task.stage != task.statusLabel {
+                    Text("/  \(task.stage)").font(.system(size: (compact ? 19 : 22) * size))
+                        .foregroundColor(Theme.muted).lineLimit(1)
+                }
                 Spacer(minLength: 0)
                 Text(task.progress.map { "\(Int($0))%" } ?? task.duration(at: model.now))
                     .font(.system(size: (compact ? 29 : 40) * size, weight: .medium, design: .monospaced)).tracking(-1)
@@ -243,7 +353,7 @@ struct FocusPanel: View {
                 VStack(alignment: .trailing, spacing: 4 * unit) {
                     Text(task.progress.map { "\(Int($0))%" } ?? task.duration(at: model.now))
                         .font(.system(size: 64 * size, weight: .medium, design: .monospaced)).tracking(-2)
-                    Button { model.open(task) } label: { Label(task.source == "Codex" ? "打开对话" : "打开记录", systemImage: "arrow.up.right") }
+                    Button { model.open(task) } label: { Label(task.source == "脚本" ? "打开记录" : "打开对话", systemImage: "arrow.up.right") }
                         .font(.system(size: 19 * size)).buttonStyle(ControlStyle())
                 }
             }

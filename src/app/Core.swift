@@ -24,6 +24,7 @@ struct TaskInfo: Decodable, Identifiable {
     let finished: Double?
     let detail: String?
     let progress: Double?
+    var sessionId: String? = nil
     var interactions: [TaskInteraction]? = nil
     var color: Color {
         switch status {
@@ -167,7 +168,20 @@ final class Model: ObservableObject {
         let saved = defaults.double(forKey: "fontScale")
         scale = saved > 0 ? CGFloat(saved) : 1
     }
-    var tasks: [TaskInfo] { orderedIDs.compactMap { cache[$0] } }
+    @Published var visibleSources: Set<String> = ["Codex", "DSH", "脚本"]
+    private let knownSources = ["Codex", "DSH", "脚本"]
+    var tasks: [TaskInfo] { orderedIDs.compactMap { cache[$0] }.filter { visibleSources.contains($0.source) } }
+    var activeCount: Int { tasks.filter { $0.status == "running" || $0.status == "waiting" }.count }
+    func sourceEnabled(_ source: String) -> Bool { visibleSources.contains(source) }
+    func toggleSource(_ source: String) {
+        guard knownSources.contains(source) else { return }
+        if visibleSources.contains(source) {
+            guard visibleSources.count > 1 else { notify("至少保留一个来源"); return }
+            visibleSources.remove(source)
+        } else { visibleSources.insert(source) }
+        defaults.set(knownSources.filter { visibleSources.contains($0) }, forKey: "visibleSources")
+        if let pinned = pinnedID, let task = cache[pinned], !visibleSources.contains(task.source) { clearPin() }
+    }
     var pinnedTask: TaskInfo? { pinnedID.flatMap { cache[$0] } }
     var stale: Bool { state == nil || now.timeIntervalSince1970 - (state?.heartbeat ?? 0) > 5 }
     var selectedWidget: WidgetDefinition? { widgets.first { $0.id == selectedWidgetID } ?? widgets.first }
@@ -175,6 +189,10 @@ final class Model: ObservableObject {
     var questionCount: Int { attentionTasks.reduce(0) { total, task in total + (task.interactions ?? []).reduce(0) { $0 + $1.questions.count } } }
 
     func start() {
+        if let saved = defaults.array(forKey: "visibleSources") as? [String] {
+            let selected = Set(saved).intersection(knownSources)
+            if !selected.isEmpty { visibleSources = selected }
+        }
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let registry = root.appendingPathComponent("widgets.json")
         if !FileManager.default.fileExists(atPath: registry.path), let bundled = Bundle.main.url(forResource: "widgets", withExtension: "json") {
@@ -256,6 +274,25 @@ final class Model: ObservableObject {
         open(task)
     }
     func open(_ task: TaskInfo) {
+        if task.source == "DSH" {
+            guard let sessionId = task.sessionId, !sessionId.isEmpty, sessionId.count <= 128 else {
+                notify("DSH 会话地址不可用"); return
+            }
+            let dshHome = ProcessInfo.processInfo.environment["DSH_HOME"].map { URL(fileURLWithPath: $0) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dsh")
+            let requestFile = dshHome.appendingPathComponent("dsh-small-screen-status/open-session.json")
+            let request: [String: Any] = ["sessionId": sessionId, "nonce": UUID().uuidString.lowercased(),
+                                          "created": Date().timeIntervalSince1970]
+            guard let data = try? JSONSerialization.data(withJSONObject: request),
+                  (try? data.write(to: requestFile, options: .atomic)) != nil else {
+                notify("无法发送 DSH 跳转请求"); return
+            }
+            guard let url = URL(string: "dsh://open"), NSWorkspace.shared.open(url) else {
+                notify("无法打开 DSH"); return
+            }
+            lastOpenedThread = task.id; writeDiagnostics()
+            return
+        }
         guard let url = task.threadURL else {
             if task.source == "脚本" { NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent("tasks/\(task.id).json")]) }
             else { notify("这个任务没有可打开的对话") }

@@ -15,7 +15,7 @@
 
 ## 本地验证
 
-在 macOS 13+、完整 Xcode 和 Python 3.9+ 环境中，从仓库根目录运行。仅安装 Command Line Tools 的部分新版 macOS 缺少 SwiftUI 宏插件，无法编译窗口源码：
+在 macOS 13+、Command Line Tools 和 Python 3.9+ 环境中，从仓库根目录运行。构建脚本会在只有 CLT、缺少 SwiftUI 宏插件时选择可编译的 SDK，并在编译成功后替换旧构建：
 
 ```sh
 python3 -m unittest discover -s tests -p 'test_*.py'

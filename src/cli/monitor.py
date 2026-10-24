@@ -13,6 +13,36 @@ ROOT = Path(os.environ.get('SMALL_SCREEN_STATUS_ROOT', str(Path.home() / 'Librar
 ACTIVE = {'running', 'waiting'}
 
 
+def read_dsh_tasks(now, home=None):
+    """Read the DSH host's short-lived, unfiltered session export."""
+    dsh_home = Path(home or os.environ.get('DSH_HOME', Path.home() / '.dsh'))
+    path = dsh_home / 'dsh-small-screen-status' / 'sessions-export.json'
+    try:
+        if path.stat().st_size > 2 * 1024 * 1024:
+            return []
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, dict) or abs(now - data.get('heartbeat', 0)) > 5:
+            return []
+        rows = data.get('tasks', [])
+        if not isinstance(rows, list):
+            return []
+        tasks = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get('source') != 'DSH':
+                continue
+            if not isinstance(row.get('id'), str) or not isinstance(row.get('sessionId'), str):
+                continue
+            if not all(isinstance(row.get(key), (int, float)) for key in ('started', 'updated')):
+                continue
+            if row.get('status') not in {'running', 'waiting', 'done', 'error', 'interrupted', 'unknown'}:
+                continue
+            tasks.append({key: row.get(key) for key in ('id', 'sessionId', 'title', 'source', 'status', 'stage',
+                                                       'started', 'updated', 'finished', 'detail', 'progress')})
+        return tasks
+    except (OSError, ValueError, TypeError):
+        return []
+
+
 def preceding_boundary(path, before):
     """Find the latest actual task boundary before a bounded bootstrap tail."""
     with Path(path).open('rb') as f:
@@ -298,6 +328,7 @@ def run(root=ROOT, codex_home=None, parent_pid=None):
         for watcher in watchers.values():
             watcher.poll()
         tasks = [w.task for w in watchers.values() if w.task]
+        tasks.extend(read_dsh_tasks(now))
         for path in (root / 'tasks').glob('*.json'):
             try:
                 task = json.loads(path.read_text())

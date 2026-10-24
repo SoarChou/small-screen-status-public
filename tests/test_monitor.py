@@ -10,7 +10,7 @@ import sqlite3
 import datetime
 CLI = Path(__file__).resolve().parents[1] / 'src/cli'
 sys.path.insert(0, str(CLI))
-from monitor import Rollout, snapshot
+from monitor import Rollout, snapshot, read_dsh_tasks
 
 
 def event(typ, **fields):
@@ -26,6 +26,17 @@ class MonitorTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_dsh_export_is_only_used_while_host_is_live(self):
+        now = time.time()
+        home = Path(self.tmp.name) / 'dsh'
+        export = home / 'dsh-small-screen-status/sessions-export.json'
+        export.parent.mkdir(parents=True)
+        row = dict(id='dsh:one', sessionId='one', title='会话', source='DSH', status='running',
+                   stage='进行中', started=now - 20, updated=now, detail='', progress=None)
+        export.write_text(json.dumps({'heartbeat': now, 'tasks': [row, dict(row, source='Codex')]}))
+        self.assertEqual([task['id'] for task in read_dsh_tasks(now, home)], ['dsh:one'])
+        self.assertEqual(read_dsh_tasks(now + 6, home), [])
 
     def test_actual_boundaries_and_turn_race(self):
         self.w.consume(event('task_started', turn_id='new', started_at=100))

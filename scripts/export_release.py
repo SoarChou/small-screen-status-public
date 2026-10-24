@@ -9,6 +9,8 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+import os
+from select_sdk import select_sdk
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -61,11 +63,15 @@ def main():
     current = platform.machine()
     other = 'x86_64' if current == 'arm64' else 'arm64'
     if not repack:
+        sdk = select_sdk()
+        sdk_args = ['-sdk', str(sdk)] if sdk else []
+        if sdk:
+            os.environ['SDKROOT'] = str(sdk)
         with tempfile.TemporaryDirectory(prefix='small-screen-universal-') as temporary:
             temp = Path(temporary)
-            run(['/usr/bin/swiftc', '-O', '-target', f'{other}-apple-macos13.0', *sorted((PROJECT / 'src/app').glob('*.swift')),
+            run(['/usr/bin/swiftc', '-O', '-target', f'{other}-apple-macos13.0', *sdk_args, *sorted((PROJECT / 'src/app').glob('*.swift')),
                  '-o', temp / 'SmallScreenStatus', '-framework', 'Cocoa', '-framework', 'SwiftUI', '-framework', 'Carbon'])
-            run(['/usr/bin/swiftc', '-O', '-target', f'{other}-apple-macos13.0', PROJECT / 'src/launcher/ChatGPTLauncher.swift',
+            run(['/usr/bin/swiftc', '-O', '-target', f'{other}-apple-macos13.0', *sdk_args, PROJECT / 'src/launcher/ChatGPTLauncher.swift',
                  '-o', temp / 'ChatGPTSmallScreenLauncher', '-framework', 'Cocoa'])
             executable = app / 'Contents/MacOS/SmallScreenStatus'
             helper = app / 'Contents/Resources/Tools/ChatGPTSmallScreenLauncher'
