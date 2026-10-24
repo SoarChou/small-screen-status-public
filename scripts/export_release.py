@@ -20,20 +20,28 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--repack', action='store_true', help='更新说明和安装入口，复用已验证的通用应用')
+    parser.add_argument('--repack-from', type=Path, help='明确指定已验证的通用应用，用于仅修改安装包的版本')
+    parser.add_argument('--version', help='与 --repack-from 一起指定新安装包版本')
     args = parser.parse_args()
-    if not args.repack:
+    if bool(args.repack_from) != bool(args.version):
+        parser.error('--repack-from 和 --version 必须同时提供')
+    repack = args.repack or bool(args.repack_from)
+    if not repack:
         run([PROJECT / 'scripts/build.sh'])
     native_app = PROJECT / 'build/Small Screen Status.app'
-    with (native_app / 'Contents/Info.plist').open('rb') as source:
-        version = plistlib.load(source)['CFBundleShortVersionString']
+    version_app = args.repack_from.expanduser().resolve() if args.repack_from else native_app
+    with (version_app / 'Contents/Info.plist').open('rb') as source:
+        version = args.version or plistlib.load(source)['CFBundleShortVersionString']
     output = PROJECT / 'dist'
     output.mkdir(exist_ok=True)
     name = f'SmallScreenStatus-{version}-macOS'
     release = output / name
     preserved = None
-    if args.repack:
-        existing = release / 'Small Screen Status.app'
-        run(['/usr/bin/lipo', existing / 'Contents/MacOS/SmallScreenStatus', '-verify_arch', 'arm64', 'x86_64'])
+    if repack:
+        existing = args.repack_from.expanduser().resolve() if args.repack_from else release / 'Small Screen Status.app'
+        architectures = subprocess.check_output(['/usr/bin/lipo', '-archs', str(existing / 'Contents/MacOS/SmallScreenStatus')], text=True)
+        if set(architectures.split()) != {'arm64', 'x86_64'}:
+            raise ValueError('复用的应用必须同时包含 arm64 和 x86_64')
         run(['/usr/bin/codesign', '--verify', '--deep', '--strict', existing])
         preserved = tempfile.TemporaryDirectory(prefix='small-screen-repack-')
         shutil.copytree(existing, Path(preserved.name) / 'Small Screen Status.app')
@@ -42,9 +50,17 @@ def main():
     shutil.copytree(PROJECT / 'packaging', release, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     app = release / 'Small Screen Status.app'
     shutil.copytree(Path(preserved.name) / 'Small Screen Status.app' if preserved else native_app, app)
+    if args.repack_from:
+        plist_path = app / 'Contents/Info.plist'
+        with plist_path.open('rb') as source:
+            info = plistlib.load(source)
+        info['CFBundleShortVersionString'] = version
+        info['CFBundleVersion'] = version
+        with plist_path.open('wb') as destination:
+            plistlib.dump(info, destination)
     current = platform.machine()
     other = 'x86_64' if current == 'arm64' else 'arm64'
-    if not args.repack:
+    if not repack:
         with tempfile.TemporaryDirectory(prefix='small-screen-universal-') as temporary:
             temp = Path(temporary)
             run(['/usr/bin/swiftc', '-O', '-target', f'{other}-apple-macos13.0', *sorted((PROJECT / 'src/app').glob('*.swift')),

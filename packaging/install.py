@@ -15,7 +15,8 @@ import time
 
 APP_NAME = 'Small Screen Status.app'
 APP_ID = 'local.soar.small-screen-status'
-LABEL = 'local.soar.small-screen-chatgpt-launcher'
+LOGIN_LABEL = 'local.soar.small-screen-login'
+HOST_LABEL = 'local.soar.small-screen-chatgpt-launcher'
 ROOT = Path(__file__).resolve().parent
 
 
@@ -74,6 +75,30 @@ def write_atomic(path, data):
             os.unlink(temporary)
 
 
+def remove_agent(domain, label, app):
+    agent = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
+    if not agent.exists():
+        return
+    arguments = plistlib.loads(agent.read_bytes()).get('ProgramArguments', [])
+    if str(app) not in arguments:
+        return
+    run(['/bin/launchctl', 'bootout', f'{domain}/{label}'], check=False)
+    agent.unlink()
+
+
+def startup_config(mode, app, helper, host_id, state):
+    arguments = (['/usr/bin/open', '-g', str(app)] if mode == 'login'
+                 else [str(helper), str(app), '--host-id', host_id])
+    config = {'Label': LOGIN_LABEL if mode == 'login' else HOST_LABEL,
+              'ProgramArguments': arguments, 'RunAtLoad': True,
+              'LimitLoadToSessionType': 'Aqua',
+              'StandardOutPath': str(state / 'launcher.log'),
+              'StandardErrorPath': str(state / 'launcher.log')}
+    if mode == 'host':
+        config.update({'KeepAlive': True, 'ThrottleInterval': 10, 'ProcessType': 'Background'})
+    return config
+
+
 def install_skills(destination):
     copied, kept = [], []
     for source in (ROOT / 'skills').iterdir():
@@ -98,16 +123,16 @@ def install_skills(destination):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='安装小屏任务状态（当前用户，无需 sudo）')
     parser.add_argument('--app-dir', type=Path, default=Path.home() / 'Applications')
-    parser.add_argument('--host-app', help='随此 ChatGPT/Codex 应用启动和退出')
+    parser.add_argument('--host-app', help='可选：改为随此 ChatGPT/Codex 应用启动和退出')
     parser.add_argument('--display', help='目标屏幕名称；未设置时自动选择最小副屏')
     parser.add_argument('--python', type=Path, help='监测使用的 Python 3.9+ 解释器路径，默认 /usr/bin/python3')
-    parser.add_argument('--no-autostart', action='store_true')
+    parser.add_argument('--no-autostart', action='store_true', help='不设置登录自启，并移除旧启动项')
     parser.add_argument('--no-launch', action='store_true')
     parser.add_argument('--no-skills', action='store_true')
     parser.add_argument('--skill-dir', type=Path, default=Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'skills')
     parser.add_argument('--dry-run', action='store_true', help='校验并显示安装计划，不修改系统')
-    parser.add_argument('--check', action='store_true', help='检查已安装应用及监听器，不修改系统')
-    parser.add_argument('--remove-autostart', action='store_true', help='仅取消联动，保留应用和内容')
+    parser.add_argument('--check', action='store_true', help='检查已安装应用及启动项，不修改系统')
+    parser.add_argument('--remove-autostart', action='store_true', help='仅取消自动启动，保留应用和内容')
     args = parser.parse_args(argv)
     if platform.system() != 'Darwin' or tuple(map(int, platform.mac_ver()[0].split('.')[:2])) < (13, 0):
         parser.error('需要 macOS 13 或更高版本')
@@ -116,38 +141,45 @@ def main(argv=None):
     app = args.app_dir.expanduser().resolve() / APP_NAME
     helper = app / 'Contents/Resources/Tools/ChatGPTSmallScreenLauncher'
     domain = f'gui/{os.getuid()}'
-    service = f'{domain}/{LABEL}'
-    agent = Path.home() / 'Library/LaunchAgents' / (LABEL + '.plist')
     state = Path.home() / 'Library/Application Support/SmallScreenStatus'
     if args.check:
-        info = metadata(app)
-        run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app])
-        status = run(['/bin/launchctl', 'print', service], check=False)
-        result = {'app': str(app), 'version': info.get('CFBundleShortVersionString'),
-                  'listener_running': status.returncode == 0 and 'state = running' in status.stdout,
-                  'listener_config': str(agent), 'log': str(state / 'launcher.log')}
-        if agent.exists():
-            result['listener_arguments'] = plistlib.loads(agent.read_bytes()).get('ProgramArguments')
-            result['listener_targets_app'] = str(app) in result['listener_arguments']
+        result = {'app': str(app), 'installed': app.is_dir(), 'version': None,
+                  'autostart_mode': None, 'autostart_registered': False,
+                  'app_running': False}
+        if app.is_dir():
+            info = metadata(app)
+            run(['/usr/bin/codesign', '--verify', '--deep', '--strict', app])
+            result['version'] = info.get('CFBundleShortVersionString')
+            result['app_running'] = run(['/usr/bin/pgrep', '-f', str(app / 'Contents/MacOS/SmallScreenStatus')], check=False).returncode == 0
+        for mode, label in [('login', LOGIN_LABEL), ('host', HOST_LABEL)]:
+            agent = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
+            if not agent.exists():
+                continue
+            config = plistlib.loads(agent.read_bytes())
+            if str(app) not in config.get('ProgramArguments', []):
+                continue
+            status = run(['/bin/launchctl', 'print', f'{domain}/{label}'], check=False)
+            result['autostart_mode'] = mode
+            result['autostart_registered'] = status.returncode == 0
+            result['autostart_targets_app'] = str(app) in config.get('ProgramArguments', [])
         if (state / 'ui-state.json').exists():
-            result['ui'] = json.loads((state / 'ui-state.json').read_text())
             result['ui_fresh'] = time.time() - (state / 'ui-state.json').stat().st_mtime < 10
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     if args.remove_autostart:
-        run(['/bin/launchctl', 'bootout', service], check=False)
-        if agent.exists():
-            agent.unlink()
-        print('已取消联动，应用及个人内容保留。')
+        for label in (LOGIN_LABEL, HOST_LABEL):
+            remove_agent(domain, label, app)
+        print('已取消自动启动，应用及个人内容保留。')
         return
     info = verify_release()
     python = args.python.expanduser().resolve() if args.python else Path('/usr/bin/python3')
     if args.python is None and run(['/usr/bin/xcode-select', '-p'], check=False).returncode != 0:
         python = Path(sys.executable).resolve()
     run([python, '-c', 'import sys,sqlite3,zoneinfo; assert sys.version_info >= (3,9)'])
-    host, host_id = choose_host(args.host_app)
-    plan = {'version': info['CFBundleShortVersionString'], 'app': str(app), 'host': str(host) if host else None,
-            'host_id': host_id, 'autostart': not args.no_autostart, 'launch': not args.no_launch,
+    mode = 'host' if args.host_app else 'login'
+    host, host_id = choose_host(args.host_app) if args.host_app else (None, None)
+    plan = {'version': info['CFBundleShortVersionString'], 'app': str(app), 'startup_mode': mode,
+            'host': str(host) if host else None, 'autostart': not args.no_autostart, 'launch': not args.no_launch,
             'display': args.display or '自动选择最小副屏', 'python': str(python),
             'skills': None if args.no_skills else str(args.skill_dir)}
     if args.dry_run:
@@ -157,6 +189,8 @@ def main(argv=None):
         raise ValueError('目标位置存在另一个应用，不能覆盖：' + str(app))
     if app == ROOT / APP_NAME:
         raise ValueError('安装位置不能与安装包来源相同')
+    for label in (LOGIN_LABEL, HOST_LABEL):
+        remove_agent(domain, label, app)
     if app.exists():
         run([helper, '--quit-screen', app])
     # Copy before replacing the existing installation; keep an upgrade backup.
@@ -178,13 +212,11 @@ def main(argv=None):
         plan['skill_result'] = install_skills(args.skill_dir.expanduser().resolve())
     if not args.no_autostart:
         state.mkdir(parents=True, exist_ok=True)
-        config = {'Label': LABEL, 'ProgramArguments': [str(helper), str(app), '--host-id', host_id],
-                  'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 10,
-                  'ProcessType': 'Background', 'LimitLoadToSessionType': 'Aqua',
-                  'StandardOutPath': str(state / 'launcher.log'), 'StandardErrorPath': str(state / 'launcher.log')}
+        config = startup_config(mode, app, helper, host_id, state)
+        label = config['Label']
+        agent = Path.home() / 'Library/LaunchAgents' / (label + '.plist')
         write_atomic(agent, plistlib.dumps(config))
-        run(['/bin/launchctl', 'bootout', service], check=False)
-        run(['/bin/launchctl', 'enable', service])
+        run(['/bin/launchctl', 'enable', f'{domain}/{label}'])
         run(['/bin/launchctl', 'bootstrap', domain, agent])
     if not args.no_launch:
         run(['/usr/bin/open', '-g', app])

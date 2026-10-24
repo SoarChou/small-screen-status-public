@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify relocated releases without changing the live app or its LaunchAgent."""
+import argparse
 import json
 import contextlib
 import importlib.util
@@ -24,8 +25,11 @@ def run(args):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--version', help='验证指定版本的发布包')
+    args = parser.parse_args()
     with (PROJECT / 'build/Small Screen Status.app/Contents/Info.plist').open('rb') as source:
-        version = plistlib.load(source)['CFBundleShortVersionString']
+        version = args.version or plistlib.load(source)['CFBundleShortVersionString']
     package = PROJECT / f'dist/SmallScreenStatus-{version}-macOS.zip'
     skill_zip = PROJECT / f'dist/small-screen-install-{version}.zip'
     if not package.is_file() or not skill_zip.is_file():
@@ -44,7 +48,7 @@ def main():
         (skills / 'small-screen-tools/SKILL.md').write_text('Existing personal skill')
         plan = json.loads(run(['/usr/bin/python3', installer, '--dry-run', '--app-dir', app_dir, '--skill-dir', skills]))
         assert plan['app'] == str(app_dir / 'Small Screen Status.app')
-        assert plan['host_id'] in {'com.openai.codex', 'com.openai.chat'}
+        assert plan['startup_mode'] == 'login' and plan['host'] is None
         install_args = ['/usr/bin/python3', installer, '--app-dir', app_dir, '--skill-dir', skills, '--no-autostart', '--no-launch']
         run(install_args)
         app = app_dir / 'Small Screen Status.app'
@@ -62,18 +66,23 @@ def main():
         spec = importlib.util.spec_from_file_location('release_installer', installer)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        module.LABEL = 'local.soar.small-screen-release-test-' + uuid.uuid4().hex
-        service = f'gui/{os.getuid()}/{module.LABEL}'
+        fixture_suffix = uuid.uuid4().hex
+        module.LOGIN_LABEL = 'local.soar.small-screen-login-test-' + fixture_suffix
+        module.HOST_LABEL = 'local.soar.small-screen-host-test-' + fixture_suffix
+        service = f'gui/{os.getuid()}/{module.HOST_LABEL}'
         fake_home = root / 'Fixture Home'
         host = root / 'Absent Fixture Host.app'
         (host / 'Contents').mkdir(parents=True)
         (host / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': 'local.soar.absent-release-host'}))
+        login_config = module.startup_config('login', app, app / 'Contents/Resources/Tools/ChatGPTSmallScreenLauncher', None, root)
+        assert login_config['ProgramArguments'] == ['/usr/bin/open', '-g', str(app)]
+        assert login_config['RunAtLoad'] and 'KeepAlive' not in login_config
         previous_home = os.environ.get('HOME')
         try:
             os.environ['HOME'] = str(fake_home)
             with contextlib.redirect_stdout(io.StringIO()):
                 module.main(['--app-dir', str(root / 'Listener Applications'), '--host-app', str(host), '--no-launch', '--no-skills'])
-            agent = fake_home / 'Library/LaunchAgents' / (module.LABEL + '.plist')
+            agent = fake_home / 'Library/LaunchAgents' / (module.HOST_LABEL + '.plist')
             config = plistlib.loads(agent.read_bytes())
             installed = root / 'Listener Applications/Small Screen Status.app'
             assert config['ProgramArguments'] == [str(installed / 'Contents/Resources/Tools/ChatGPTSmallScreenLauncher'), str(installed), '--host-id', 'local.soar.absent-release-host']
@@ -84,7 +93,7 @@ def main():
                 time.sleep(0.1)
             assert 'state = running' in status, status
             with contextlib.redirect_stdout(io.StringIO()):
-                module.main(['--remove-autostart'])
+                module.main(['--app-dir', str(root / 'Listener Applications'), '--remove-autostart'])
             assert not agent.exists() and installed.is_dir()
         finally:
             subprocess.run(['/bin/launchctl', 'bootout', service], capture_output=True)
@@ -108,7 +117,7 @@ def main():
         (corrupted / 'Small Screen Status.app/Contents/Resources/widgets.json').write_text('{}')
         result = subprocess.run(['/usr/bin/python3', str(corrupted / 'install.py'), '--dry-run'], capture_output=True, text=True)
         assert result.returncode and '校验失败' in result.stderr
-        print('Share checks passed: relocated install; universal binaries; signature; existing skills preserved; upgrade backup; isolated LaunchAgent registration/removal; installed skill after download removal; independent skill installation; corruption rejection.')
+        print('Share checks passed: relocated install; universal binaries; signature; login launch configuration; existing skills preserved; upgrade backup; isolated host LaunchAgent registration/removal; installed skill after download removal; independent skill installation; corruption rejection.')
     print('All verification installations were isolated; production app and LaunchAgent were unchanged.')
 
 

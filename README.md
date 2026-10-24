@@ -14,7 +14,7 @@
 
 ## 获取与安装
 
-从 [Releases](https://github.com/SoarChou/small-screen-status-public/releases) 下载 `SmallScreenStatus-*-macOS.zip`，解压后双击 `install.command`。安装程序将应用放到 `~/Applications/`，可设置随本机 ChatGPT/Codex 启动和退出；无需管理员权限。另有 `small-screen-install-*.zip`，可让 agent 使用随包附带的安装 skill。
+从 [Releases](https://github.com/SoarChou/small-screen-status-public/releases) 下载 `SmallScreenStatus-*-macOS.zip`，解压后双击 `install.command`。安装程序将独立应用放到 `~/Applications/`，默认设置为登录 Mac 后自动启动；退出 ChatGPT/Codex 不会关闭小屏。无需管理员权限。另有 `small-screen-install-*.zip`，可让 agent 使用随包附带的安装 skill。
 
 要求 macOS 13+（Apple Silicon 或 Intel）和 Python 3.9+；默认使用 Apple Command Line Tools 提供的 `/usr/bin/python3`。分享包内已包含编译后的应用。应用使用临时签名，未经 Apple 公证；首次打开若被阻止，请按 [Apple 的说明](https://support.apple.com/102445) 在系统设置中确认。
 
@@ -31,14 +31,14 @@
 
 ## 从源码运行
 
-需要 Xcode Command Line Tools（Swift 编译器和 Python）。在仓库根目录执行：
+需要完整 Xcode（SwiftUI 宏插件）和 Python。在仓库根目录执行：
 
 ```sh
 ./scripts/build.sh
 open 'build/Small Screen Status.app'
 ```
 
-应用源代码在 `src/app/`，生命周期监听器在 `src/launcher/`，Python 监测与命令行工具在 `src/cli/`，默认工具配置在 `src/config/`。`packaging/` 是安装包模板和三个 agent skill；`scripts/` 负责构建与导出；`tests/` 包含自动验证。开发和发布命令见 [开发说明](docs/DEVELOPMENT.md)。仓库不跟踪 `build/` 或 `dist/` 产物。
+应用源代码在 `src/app/`，可选的 ChatGPT/Codex 启停监听器在 `src/launcher/`，Python 监测与命令行工具在 `src/cli/`，默认工具配置在 `src/config/`。`packaging/` 是安装包模板和三个 agent skill；`scripts/` 负责构建与导出；`tests/` 包含自动验证。开发和发布命令见 [开发说明](docs/DEVELOPMENT.md)。仓库不跟踪 `build/` 或 `dist/` 产物。
 
 ## 数据与兼容性
 
