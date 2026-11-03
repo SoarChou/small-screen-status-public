@@ -3,6 +3,24 @@ import SwiftUI
 
 final class StatusTextView: NSTextView {
     var onCommittedText: ((StatusTextView) -> Void)?
+    var onSubmit: (() -> Void)?
+    var focusOnAttach = false
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusOnAttach, window != nil else { return }
+        focusOnAttach = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            window.makeKey(); window.makeFirstResponder(self)
+        }
+    }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36, event.modifierFlags.contains(.command), let onSubmit {
+            unmarkText(); onSubmit(); return
+        }
+        super.keyDown(with: event)
+    }
     override func unmarkText() {
         super.unmarkText()
         // IME composition can end after the last textDidChange notification.
@@ -29,6 +47,8 @@ struct StatusTextEditor: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat
     var label: String
+    var autofocus = false
+    var onSubmit: (() -> Void)? = nil
     @Environment(\.isEnabled) var enabled
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSScrollView {
@@ -36,6 +56,7 @@ struct StatusTextEditor: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         let editor = StatusTextView(frame: .zero)
+        editor.focusOnAttach = autofocus
         editor.isRichText = false
         editor.isEditable = true; editor.isSelectable = true; editor.allowsUndo = true
         editor.drawsBackground = false
@@ -59,6 +80,7 @@ struct StatusTextEditor: NSViewRepresentable {
         editor.font = .systemFont(ofSize: fontSize)
         editor.isEditable = enabled; editor.isSelectable = enabled
         editor.setAccessibilityLabel(label)
+        editor.onSubmit = onSubmit
         // Never overwrite an in-progress IME composition or reset selection on clock ticks.
         if !editor.hasMarkedText(), editor.string != text {
             let selection = editor.selectedRange()

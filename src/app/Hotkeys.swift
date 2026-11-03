@@ -11,6 +11,10 @@ final class Hotkeys {
         if (201...209).contains(id) { return ("pin", Int(id - 200)) }
         if id == 300 { return ("overview", 0) }
         if id == 301 { return ("tab", 0) }
+        if id == 302 { return ("note", 0) }
+        if id == 303 { return ("results", 0) }
+        if id == 304 { return ("remind", 0) }
+        if id == 305 { return ("timer", 0) }
         return nil
     }
     init(model: Model) { self.model = model }
@@ -35,6 +39,10 @@ final class Hotkeys {
         }
         register(29, modifiers: base, id: 300) // 0: overview
         register(17, modifiers: base, id: 301) // T: tabs
+        register(45, modifiers: base, id: 302) // N: quick note
+        register(15, modifiers: base, id: 303) // R: results
+        register(11, modifiers: base, id: 304) // B: reminder
+        register(35, modifiers: base, id: 305) // P: pomodoro
         model.registeredHotkeys = references.count
     }
     func register(_ key: UInt32, modifiers: UInt32, id: UInt32) {
@@ -50,6 +58,7 @@ final class Hotkeys {
         case "open": model.open(position: position)
         case "pin": model.pin(position: position)
         case "overview": model.clearPin(); model.tab = "tasks"; model.onShow?(); model.writeDiagnostics()
+        case "note", "results", "remind", "timer": model.presentQuickPanel(action)
         default: model.toggleTab()
         }
     }

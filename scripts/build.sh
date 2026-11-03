@@ -25,9 +25,9 @@ cat > "$staging/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>Small Screen Status</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.3.2</string>
+<key>CFBundleShortVersionString</key><string>1.4.0</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>CFBundleVersion</key><string>6</string>
+<key>CFBundleVersion</key><string>7</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

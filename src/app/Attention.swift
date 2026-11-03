@@ -1,9 +1,9 @@
 import Foundation
 
 enum AttentionKind: String, Equatable {
-    case question, failure, timer, completion
-    var priority: Int { switch self { case .question: return 3; case .failure, .timer: return 2; case .completion: return 1 } }
-    var seconds: Double { switch self { case .question: return 45; case .failure, .timer: return 20; case .completion: return 10 } }
+    case question, failure, timer, completion, reminder
+    var priority: Int { switch self { case .question: return 3; case .failure, .timer, .reminder: return 2; case .completion: return 1 } }
+    var seconds: Double { switch self { case .question: return 45; case .failure, .timer, .reminder: return 20; case .completion: return 10 } }
 }
 
 struct AttentionAlert: Identifiable, Equatable {

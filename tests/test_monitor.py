@@ -266,6 +266,16 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 7)
         self.assertEqual(self.task_file()['status'], 'error')
 
+    def test_script_artifact_survives_completion(self):
+        output = Path(self.tmp.name) / 'report.txt'
+        env = dict(os.environ, SMALL_SCREEN_STATUS_ROOT=self.tmp.name)
+        result = subprocess.run([sys.executable, str(CLI / 'screenctl.py'),
+                                 'run', '--title', '产物验证', '--artifact', str(output), '--',
+                                 sys.executable, '-c', f'from pathlib import Path; Path({str(output)!r}).write_text("ok")'], env=env)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.task_file()['artifacts'], [str(output.resolve())])
+        self.assertEqual(output.read_text(), 'ok')
+
     def test_reported_progress_is_preserved_on_failure(self):
         ctl = str(CLI / 'screenctl.py')
         result = self.run_script(f'import subprocess,sys; subprocess.check_call([sys.executable,{ctl!r},"progress","42","--message","处理数据"]); raise SystemExit(3)')

@@ -7,32 +7,37 @@ struct AttentionOverlay: View {
     @Environment(\.accessibilityReduceMotion) var reduceMotion
     var size: CGFloat { unit * model.scale }
     var tint: Color { alert.kind == .failure ? Theme.red : (alert.kind == .timer ? Theme.amber : Theme.accent) }
-    var symbol: String { switch alert.kind { case .question: return "bubble.left.and.text.bubble.right.fill"; case .timer: return "timer"; case .failure: return "exclamationmark.triangle.fill"; case .completion: return "checkmark.circle.fill" } }
+    var symbol: String { switch alert.kind { case .question: return "bubble.left.and.text.bubble.right.fill"; case .timer: return "timer"; case .failure: return "exclamationmark.triangle.fill"; case .completion: return "checkmark.circle.fill"; case .reminder: return "bell.badge" } }
     var body: some View {
         ZStack {
             Theme.background.opacity(0.97).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 16 * unit) {
                 HStack(spacing: 12 * unit) {
                     Image(systemName: symbol).font(.system(size: 29 * size)).foregroundColor(tint)
-                    Text(alert.kind == .question ? "需要你回答" : (alert.kind == .timer ? "计时结束" : (alert.kind == .failure ? "任务需要检查" : "本轮完成")))
+                    Text(alert.kind == .question ? "需要你回答" : (alert.kind == .timer ? "计时结束" : (alert.kind == .failure ? "任务需要检查" : (alert.kind == .reminder ? "回来看一下" : "本轮完成"))))
                         .font(.system(size: 30 * size, weight: .semibold))
                     Spacer()
                     if let deadline = alert.expires {
                         Text("\(Int(ceil(max(0, deadline.timeIntervalSince(model.now))))) 秒后返回")
-                            .font(.system(size: 18 * size)).monospacedDigit().foregroundColor(Theme.muted)
-                    } else { Text("正在处理").font(.system(size: 18 * size)).foregroundColor(Theme.muted) }
-                    Button { model.dismissAttention() } label: { Image(systemName: "xmark").font(.system(size: 22 * size)) }
+                            .font(.system(size: 23 * size)).monospacedDigit().foregroundColor(Theme.muted)
+                    } else { Text("正在处理").font(.system(size: 23 * size)).foregroundColor(Theme.muted) }
+                    Button { model.dismissAttention() } label: { Image(systemName: "xmark").font(.system(size: 26 * size)) }
                         .buttonStyle(.plain).padding(7 * unit).accessibilityLabel("关闭提示并返回")
                 }
                 Text(alert.title).font(.system(size: 27 * size, weight: .medium)).lineLimit(2).foregroundColor(Theme.muted)
                 Rectangle().fill(tint.opacity(0.25)).frame(height: 1)
-                content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                if alert.kind == .question {
+                    content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                } else {
+                    ScrollView { content.frame(maxWidth: .infinity).padding(.vertical, 6 * unit) }
+                        .frame(maxHeight: .infinity)
+                }
                 HStack {
                     Text(model.queuedAlertCount > 0 ? "还有 \(model.queuedAlertCount) 条提示" : "结束提示后返回原页面")
-                        .font(.system(size: 18 * size)).foregroundColor(Theme.muted)
+                        .font(.system(size: 23 * size)).foregroundColor(Theme.muted)
                     Spacer()
                     Button(alert.kind == .question ? "暂时返回" : "知道了，返回") { model.dismissAttention() }
-                        .font(.system(size: 21 * size, weight: .medium)).buttonStyle(ControlStyle())
+                        .font(.system(size: 25 * size, weight: .medium)).buttonStyle(ControlStyle())
                 }
             }.padding(26 * unit).background(Theme.surface)
                 .cornerRadius(22 * unit)
@@ -46,6 +51,17 @@ struct AttentionOverlay: View {
     }
     @ViewBuilder var content: some View {
         switch alert.kind {
+        case .reminder:
+            VStack(spacing: 24 * unit) {
+                Image(systemName: "bell.badge").font(.system(size: 64 * size)).foregroundColor(Theme.accent)
+                Text("到了约定的时间").font(.system(size: 36 * size, weight: .semibold))
+                HStack {
+                    Button("查看任务") { model.closeAttention(); model.openRememberedTask(alert.targetID) }
+                        .buttonStyle(ControlStyle(selected: true))
+                    Button("再过 5 分钟") { model.snoozeReminder(alert); model.dismissAttention() }
+                        .buttonStyle(ControlStyle())
+                }.font(.system(size: 26 * size))
+            }
         case .question:
             if let task = model.cache[alert.targetID], let request = task.interactions?.first(where: { $0.id == alert.requestID }) {
                 ScrollView {
@@ -70,7 +86,7 @@ struct AttentionOverlay: View {
                         model.dismissAttention()
                     }.buttonStyle(ControlStyle(selected: true))
                     Button("查看计时器") { model.closeAttention(); model.openWidget(alert.targetID) }.buttonStyle(ControlStyle())
-                }.font(.system(size: 22 * size, weight: .medium))
+                }.font(.system(size: 26 * size, weight: .medium))
             }
         case .completion, .failure:
             VStack(spacing: 18 * unit) {
@@ -81,7 +97,11 @@ struct AttentionOverlay: View {
                     Text("用时 \(task.duration(at: model.now))").font(.system(size: 25 * size, design: .monospaced)).foregroundColor(Theme.muted)
                     Button(task.source == "Codex" ? "打开对话查看结果" : "打开任务记录") {
                         model.closeAttention(); model.open(task)
-                    }.font(.system(size: 23 * size)).buttonStyle(ControlStyle(selected: true))
+                    }.font(.system(size: 26 * size)).buttonStyle(ControlStyle(selected: true))
+                    if alert.kind == .completion {
+                        Button("查看产物") { model.closeAttention(); model.quickPanel = "results" }
+                            .font(.system(size: 25 * size)).buttonStyle(ControlStyle())
+                    }
                 }
             }
         }

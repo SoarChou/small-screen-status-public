@@ -15,6 +15,8 @@ description: 在 Mac 上安装、更新或检查可分享的 Small Screen Status
 
 这是临时签名、未 Apple 公证的个人分享版本。若实际被 Gatekeeper 阻止，告知用户应用位置与系统提示，让用户按 [Apple 的首次打开流程](https://support.apple.com/102445) 对这个应用确认。不要删除 quarantine、全局关闭 Gatekeeper 或把临时签名说成 Apple 公证。缺少 Python 时说明 `xcode-select --install` 或使用已有合适 Python；安装额外依赖按当前用户授权处理。
 
-检查时区分“复制安装成功”与“运行成功”：登录启动项已注册、应用正在运行，且 `~/Library/Application Support/SmallScreenStatus/ui-state.json` 状态新鲜、20 个全局热键注册成功。必要时调用已安装辅助程序 `--list-displays` 获取屏幕名称，再让用户在菜单中选择，或按其明确要求写入偏好。验证界面只操作小屏；不要为测试关闭用户正在工作的 ChatGPT。
+检查时区分“复制安装成功”与“运行成功”：登录启动项已注册、应用正在运行，且 `~/Library/Application Support/SmallScreenStatus/ui-state.json` 状态新鲜、24 个全局热键注册成功。必要时调用已安装辅助程序 `--list-displays` 获取屏幕名称，再让用户在菜单中选择，或按其明确要求写入偏好。验证界面只操作小屏；不要为测试关闭用户正在工作的 ChatGPT。
 
 更新保留个人内容，旧应用会先正常退出并留下带时间戳的应用备份。已安装应用的 `--check` 和 `--remove-autostart` 可以通过同一入口调用；取消自启保留应用和个人内容。不要为普通安装清空 `~/Library/Application Support/SmallScreenStatus/`。
+
+1.4 可在应用右上角齿轮或菜单栏“设置…”中调整显示屏、窗口位置与大小、字号和登录自启；自动启动状态以设置页和实际 LaunchAgent 注册状态为准。

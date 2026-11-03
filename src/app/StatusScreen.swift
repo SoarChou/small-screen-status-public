@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var preferredDisplay: String?
     var displayMenu: NSMenu!
     var hotkeys: Hotkeys?
+    var settingsWindow: NSWindow?
+    lazy var settings = ScreenSettings(defaults: model.defaults)
     private var instanceLock: Int32 = -1
     private var didStart = false
     private func claimInstance() -> Bool {
@@ -78,14 +80,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         statusItem.menu = menu
+        let preferences = NSMenuItem(title: "设置…", action: #selector(showSettings), keyEquivalent: ",")
+        preferences.target = self; menu.insertItem(preferences, at: 1)
+        for (title, action, key) in [("记一句", #selector(quickNote), "n"),
+                                     ("完成产物", #selector(quickResults), "r"),
+                                     ("稍后提醒", #selector(quickReminder), "b"),
+                                     ("番茄钟", #selector(quickTimer), "p")] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+            item.keyEquivalentModifierMask = [.control, .option, .command]
+            item.target = self; menu.addItem(item)
+        }
+        let classic = NSMenuItem(title: "使用旧版工具栏", action: #selector(toggleClassicToolbar(_:)), keyEquivalent: "")
+        classic.target = self
+        classic.state = model.classicToolbar ? .on : .off
+        menu.insertItem(classic, at: 3)
         let displays = NSMenuItem(title: "选择显示屏", action: nil, keyEquivalent: "")
         displayMenu = NSMenu(title: "选择显示屏")
         displays.submenu = displayMenu
         menu.insertItem(displays, at: 3)
         NotificationCenter.default.addObserver(self, selector: #selector(placeWindow), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.window == self?.window else { return event }
             if event.keyCode == 53 {
                 if self?.model.attentionAlert != nil { self?.model.dismissAttention() }
+                else if self?.model.quickPanel != nil { self?.model.quickPanel = nil }
                 else if !(self?.window.firstResponder is NSTextView) { self?.hideWindow() }
                 else { return event }
                 return nil
@@ -100,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if self.model.attentionAlert != nil { self.window.makeFirstResponder(self.window.contentView) }
             self.showWindow()
         }
+        model.onSettings = { [weak self] in self?.showSettings() }
         if previewRoot == nil {
             hotkeys = Hotkeys(model: model)
             hotkeys?.start()
@@ -110,6 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func installEditingMenu() {
         let menu = NSMenu()
         let appItem = NSMenuItem(); let appMenu = NSMenu(title: "小屏状态")
+        let preferences = appMenu.addItem(withTitle: "设置…", action: #selector(showSettings), keyEquivalent: ",")
+        preferences.target = self
         appMenu.addItem(withTitle: "退出小屏状态", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu; menu.addItem(appItem)
         let editItem = NSMenuItem(); let editMenu = NSMenu(title: "编辑")
@@ -140,11 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screens = NSScreen.screens
         let choices = screens.map { DisplayOption(name: $0.localizedName, area: $0.frame.width * $0.frame.height,
                                                   isMain: CGDisplayIsMain(displayID($0)) != 0) }
-        let selected = DisplayOption.selectedIndex(choices, preferred: preferredDisplay)
+        let savedID = model.defaults.string(forKey: "preferredDisplayID")
+        let selected = savedID.map { id in screens.firstIndex { ScreenSettings.screenID($0) == id } }
+            ?? DisplayOption.selectedIndex(choices, preferred: preferredDisplay)
+        settings.refreshDisplays()
         displayMenu.removeAllItems()
         for (index, screen) in screens.enumerated() {
             let item = NSMenuItem(title: "\(screen.localizedName) · \(Int(screen.frame.width)) × \(Int(screen.frame.height))", action: #selector(selectDisplay(_:)), keyEquivalent: "")
-            item.target = self; item.representedObject = screen.localizedName
+            item.target = self; item.representedObject = ScreenSettings.screenID(screen)
             item.state = index == selected ? .on : .off
             displayMenu.addItem(item)
         }
@@ -159,24 +183,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let screen = screens[index]
         model.displayAvailable = true
-        window.setFrame(screen.frame, display: true)
+        let placement = WindowPlacement(defaults: model.defaults)
+        window.level = placement.fullScreen ? NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1) : .floating
+        window.setFrame(placement.frame(screen: screen.frame, visible: screen.visibleFrame), display: true)
         statusItem.button?.toolTip = "小屏任务状态 · \(screen.localizedName)"
     }
     func displayID(_ screen: NSScreen) -> CGDirectDisplayID {
         (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
     @objc func selectDisplay(_ sender: NSMenuItem) {
-        guard let name = sender.representedObject as? String else { return }
-        preferredDisplay = name
-        UserDefaults.standard.set(name, forKey: "preferredDisplay")
+        guard let id = sender.representedObject as? String,
+              let screen = NSScreen.screens.first(where: { ScreenSettings.screenID($0) == id }) else { return }
+        preferredDisplay = screen.localizedName
+        model.defaults.set(screen.localizedName, forKey: "preferredDisplay")
+        model.defaults.set(id, forKey: "preferredDisplayID")
         showWindow()
     }
     @objc func automaticDisplay() {
         preferredDisplay = nil
         UserDefaults.standard.removeObject(forKey: "preferredDisplay")
+        model.defaults.removeObject(forKey: "preferredDisplayID")
         showWindow()
     }
     @objc func showWindow() { placeWindow(); if model.displayAvailable { window.orderFrontRegardless() } }
+    @objc func showSettings() {
+        settings.reload()
+        if settingsWindow == nil {
+            let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 720),
+                                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            panel.title = "小屏设置"; panel.isReleasedWhenClosed = false
+            panel.minSize = NSSize(width: 720, height: 600)
+            panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
+            panel.contentView = NSHostingView(rootView: ScreenSettingsView(settings: settings, model: model) { [weak self] in
+                guard let self else { return }
+                self.preferredDisplay = self.model.defaults.string(forKey: "preferredDisplay")
+                self.showWindow()
+            })
+            settingsWindow = panel
+        }
+        if let main = NSScreen.screens.first(where: { CGDisplayIsMain(displayID($0)) != 0 }) {
+            let area = main.visibleFrame
+            if let panel = settingsWindow {
+                let width = min(panel.frame.width, area.width), height = min(panel.frame.height, area.height)
+                panel.setFrame(NSRect(x: area.midX - width / 2, y: area.midY - height / 2, width: width, height: height), display: true)
+            }
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+    @objc func quickNote() { model.presentQuickPanel("note") }
+    @objc func quickResults() { model.presentQuickPanel("results") }
+    @objc func quickReminder() { model.presentQuickPanel("remind") }
+    @objc func quickTimer() { model.presentQuickPanel("timer") }
+    @objc func toggleClassicToolbar(_ sender: NSMenuItem) {
+        model.classicToolbar.toggle()
+        model.defaults.set(model.classicToolbar, forKey: "classicToolbar")
+        sender.state = model.classicToolbar ? .on : .off
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWindow()
         return true

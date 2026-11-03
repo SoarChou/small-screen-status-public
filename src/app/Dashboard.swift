@@ -1,13 +1,27 @@
 import SwiftUI
 
+private struct ControlScaleKey: EnvironmentKey { static let defaultValue: CGFloat = 1 }
+extension EnvironmentValues {
+    var controlScale: CGFloat {
+        get { self[ControlScaleKey.self] }
+        set { self[ControlScaleKey.self] = newValue }
+    }
+}
+
 struct ControlStyle: ButtonStyle {
     var selected = false
+    @Environment(\.controlScale) private var scale
+    @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .font(.system(size: 24 * scale, weight: .medium))
             .foregroundColor(selected ? Theme.background : Theme.ink)
-            .padding(.horizontal, 13).padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Theme.accent : Theme.elevated.opacity(configuration.isPressed ? 1 : 0.65)))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: selected ? 0 : 1))
+            .padding(.horizontal, 16 * scale).padding(.vertical, 9 * scale)
+            .frame(minHeight: 48 * scale)
+            .contentShape(Rectangle())
+            .background(RoundedRectangle(cornerRadius: 10 * scale).fill(selected ? Theme.accent : Theme.elevated.opacity(configuration.isPressed ? 1 : 0.65)))
+            .overlay(RoundedRectangle(cornerRadius: 10 * scale).stroke(Theme.line, lineWidth: selected ? 0 : 1))
+            .opacity(enabled ? 1 : 0.42)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
@@ -78,9 +92,9 @@ struct Dashboard: View {
             selectedSource == nil || task.source == selectedSource ? TaskSlot(position: index + 1, task: task) : nil
         }
     }
-    var pageCount: Int { max(1, (slots.count + 2) / 3) }
+    var pageCount: Int { max(1, (slots.count + 1) / 2) }
     var currentPage: Int { min(page, pageCount - 1) }
-    private var visibleSlots: [TaskSlot] { Array(slots.dropFirst(currentPage * 3).prefix(3)) }
+    private var visibleSlots: [TaskSlot] { Array(slots.dropFirst(currentPage * 2).prefix(2)) }
     private func manualChoice() { manualUntil = model.now.addingTimeInterval(60); lastTurn = model.now }
     private func showPage(_ next: Int) {
         manualChoice()
@@ -154,14 +168,18 @@ struct Dashboard: View {
             }
             .foregroundColor(Theme.ink)
             .allowsHitTesting(model.attentionAlert == nil)
-            .disabled(model.attentionAlert != nil)
-            .accessibilityHidden(model.attentionAlert != nil)
+            .disabled(model.attentionAlert != nil || model.quickPanel != nil)
+            .accessibilityHidden(model.attentionAlert != nil || model.quickPanel != nil)
             if let alert = model.attentionAlert {
                 AttentionOverlay(model: model, alert: alert, unit: unit)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .zIndex(1)
             }
-            }.animation(.easeOut(duration: 0.25), value: model.attentionAlert?.id)
+            if model.quickPanel != nil, model.attentionAlert == nil {
+                QuickPanel(model: model, unit: unit).zIndex(2)
+            }
+            }.environment(\.controlScale, size)
+                .animation(.easeOut(duration: 0.25), value: model.attentionAlert?.id)
         }
         .preferredColorScheme(.dark)
         .onAppear { lastTurn = model.now }
@@ -175,13 +193,12 @@ struct Dashboard: View {
     }
     func header(size: CGFloat) -> some View {
         HStack(spacing: 13 * size) {
-            Image(systemName: "square.stack.3d.up").font(.system(size: 23 * size, weight: .medium)).foregroundColor(Theme.accent)
-            Text(model.tab == "tasks" ? "任务监测" : (model.tab == "interactions" ? "待处理" : "小工具")).font(.system(size: 25 * size, weight: .semibold))
+            Text(model.tab == "tasks" ? "任务监测" : (model.tab == "interactions" ? "待处理" : "小工具")).font(.system(size: 29 * size, weight: .semibold))
             if model.tab == "tasks" {
                 HStack(spacing: 6 * size) {
                     Circle().fill(Theme.accent).frame(width: 6 * size, height: 6 * size)
-                    Text("\(model.activeCount) LIVE").tracking(1.1 * size)
-                }.font(.system(size: 14 * size, weight: .medium, design: .monospaced)).foregroundColor(Theme.muted)
+                    Text("\(model.activeCount)")
+                }.font(.system(size: 23 * size, weight: .medium, design: .monospaced)).foregroundColor(Theme.accent)
             }
             Spacer()
             HStack(spacing: 5) {
@@ -192,28 +209,20 @@ struct Dashboard: View {
                     .accessibilityLabel("待处理页面，\(model.questionCount) 个问题")
                 Button { model.tab = "tools" } label: { Label("工具", systemImage: "square.grid.2x2") }
                     .buttonStyle(ControlStyle(selected: model.tab == "tools"))
-            }.font(.system(size: 18 * size, weight: .medium))
-            Menu {
-                ForEach(sourceOrder, id: \.self) { source in
-                    Button { model.toggleSource(source) } label: {
-                        Label(source, systemImage: model.sourceEnabled(source) ? "checkmark.circle.fill" : "circle")
-                    }
-                }
-            } label: {
+            }
+            Button { model.presentQuickPanel("sources") } label: {
                 Label("来源", systemImage: "line.3.horizontal.decrease")
-                    .font(.system(size: 17 * size, weight: .medium))
-                    .foregroundColor(Theme.muted)
-                    .padding(.horizontal, 10 * size).padding(.vertical, 8 * size)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.elevated.opacity(0.55)))
-            }.menuStyle(.borderlessButton).fixedSize()
-            Text(model.now, style: .time).font(.system(size: 22 * size, design: .monospaced)).foregroundColor(Theme.muted)
+            }.buttonStyle(ControlStyle()).accessibilityLabel("选择任务来源")
+            Button { model.onSettings?() } label: { Image(systemName: "gearshape") }
+                .buttonStyle(ControlStyle()).accessibilityLabel("打开小屏设置")
+            Text(model.now, style: .time).font(.system(size: 25 * size, design: .monospaced)).foregroundColor(Theme.muted)
         }
     }
     func taskStrip(size: CGFloat) -> some View {
         HStack(spacing: 9) {
             Button {
                 showSource(nil)
-            } label: { Text("总览").font(.system(size: 18 * size, weight: .medium)) }
+            } label: { Text("总览") }
                 .buttonStyle(ControlStyle(selected: model.pinnedID == nil && selectedSource == nil))
                 .accessibilityLabel("总览，取消固定监测与分组")
             ScrollViewReader { proxy in
@@ -243,7 +252,7 @@ struct Dashboard: View {
                             Button { model.pin(slot.task); manualChoice() } label: {
                                 HStack(spacing: 8) {
                                     Text("\(slot.position)").font(.system(size: 17 * size, weight: .semibold, design: .monospaced))
-                                    Text(slot.task.title).font(.system(size: 18 * size, weight: .medium)).lineLimit(1).frame(maxWidth: 210 * size)
+                                    Text(slot.task.title).font(.system(size: 24 * size, weight: .medium)).lineLimit(1).frame(maxWidth: 240 * size)
                                     if model.pinnedID == slot.id { Image(systemName: "pin.fill").font(.system(size: 13 * size)) }
                                 }
                             }
@@ -263,6 +272,8 @@ struct Dashboard: View {
                 Text(toast).foregroundColor(Theme.accent).lineLimit(1)
             } else if let error = model.hotkeyError ?? model.state?.error {
                 Text(error).foregroundColor(Theme.amber).lineLimit(1)
+            } else if model.tab == "tasks", !model.classicToolbar {
+                QuickActionBar(model: model, size: size)
             } else if model.tab == "tasks", !model.widgetSummaries.isEmpty {
                 ToolStatusStrip(model: model, size: size)
             } else {
@@ -288,7 +299,7 @@ struct Dashboard: View {
                 }
             } else if model.tab == "tasks", let source = selectedSource {
                 Text("\(source) · 点击总览查看全部").lineLimit(1)
-            } else { Text("本地更新 · 字号 ±") }
+            } else if model.tab != "tasks" { Text("字号 ±") }
         }.buttonStyle(.plain).font(.system(size: 16 * size)).foregroundColor(Theme.muted)
     }
 }
@@ -310,10 +321,10 @@ struct TaskRow: View {
                     MarqueeText(text: task.title, fontSize: (compact ? 27 : 32) * size, weight: .semibold)
                 }.buttonStyle(.plain).accessibilityLabel("打开对话 \(position)：\(task.title)")
                 Button { model.pin(task) } label: { Image(systemName: "pin").font(.system(size: 20 * size)) }
-                    .buttonStyle(.plain).foregroundColor(Theme.muted).padding(7 * unit)
+                    .buttonStyle(.plain).foregroundColor(Theme.ink).frame(width: 48 * unit, height: 48 * unit).background(Theme.elevated).cornerRadius(10 * unit)
                     .accessibilityLabel("固定任务 \(position) 五分钟")
                 Button { model.open(task) } label: { Image(systemName: "arrow.up.right").font(.system(size: 21 * size)) }
-                    .buttonStyle(.plain).foregroundColor(Theme.muted).padding(7 * unit)
+                    .buttonStyle(.plain).foregroundColor(Theme.ink).frame(width: 48 * unit, height: 48 * unit).background(Theme.elevated).cornerRadius(10 * unit)
                     .accessibilityLabel("跳转对话 \(position)")
             }
             HStack(spacing: 14 * unit) {

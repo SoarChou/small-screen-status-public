@@ -26,6 +26,7 @@ struct TaskInfo: Decodable, Identifiable {
     let progress: Double?
     var sessionId: String? = nil
     var interactions: [TaskInteraction]? = nil
+    var artifacts: [String]? = nil
     var color: Color {
         switch status {
         case "waiting", "unknown", "interrupted": return Theme.amber
@@ -141,6 +142,9 @@ final class Model: ObservableObject {
     @Published var hotkeyError: String?
     @Published var toast: String?
     @Published var lastOpenedThread: String?
+    @Published var workbench = WorkbenchState()
+    @Published var quickPanel: String?
+    @Published var classicToolbar = false
     @Published var replyDrafts: [String: String] = [:]
     @Published var instructionDrafts: [String: String] = [:]
     @Published var readouts: [String: Readout] = [:]
@@ -161,12 +165,14 @@ final class Model: ObservableObject {
     let root: URL
     let defaults: UserDefaults
     var onShow: (() -> Void)?
+    var onSettings: (() -> Void)?
 
     init(root: URL? = nil, defaults: UserDefaults = .standard) {
         self.root = root ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/SmallScreenStatus")
         self.defaults = defaults
         let saved = defaults.double(forKey: "fontScale")
         scale = saved > 0 ? CGFloat(saved) : 1
+        classicToolbar = defaults.bool(forKey: "classicToolbar")
     }
     @Published var visibleSources: Set<String> = ["Codex", "DSH", "脚本"]
     private let knownSources = ["Codex", "DSH", "脚本"]
@@ -201,6 +207,7 @@ final class Model: ObservableObject {
         if let data = try? Data(contentsOf: root.appendingPathComponent("tools-state.json")),
            let states = try? JSONDecoder().decode([String: WidgetState].self, from: data) { widgetStates = states }
         selectedWidgetID = defaults.string(forKey: "selectedWidget")
+        loadWorkbench()
         if let data = try? Data(contentsOf: root.appendingPathComponent("attention-seen.json")),
            let keys = try? JSONDecoder().decode([String].self, from: data) { alerts.seen = Array(keys.suffix(512)) }
         if let data = try? Data(contentsOf: root.appendingPathComponent("reply-drafts.json")),
@@ -217,6 +224,7 @@ final class Model: ObservableObject {
     func ingest(_ snapshot: Snapshot) {
         state = snapshot
         let incoming = withDirectQuestions(snapshot.display_tasks ?? snapshot.active)
+        observeResults(incoming)
         var ids = incoming.map(\.id)
         if ids.isEmpty, let primary = snapshot.primary { ids = [primary.id]; cache[primary.id] = primary }
         for task in incoming { cache[task.id] = task }
@@ -255,6 +263,7 @@ final class Model: ObservableObject {
             }
         }
         if changed { saveWidgets() }
+        checkReminders()
         if toast != nil && date >= toastUntil { toast = nil }
         alerts.advance(now: date); syncAttention()
         if poll { writeDiagnostics() }
@@ -281,7 +290,8 @@ final class Model: ObservableObject {
             let dshHome = ProcessInfo.processInfo.environment["DSH_HOME"].map { URL(fileURLWithPath: $0) }
                 ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dsh")
             let requestFile = dshHome.appendingPathComponent("dsh-small-screen-status/open-session.json")
-            let request: [String: Any] = ["sessionId": sessionId, "nonce": UUID().uuidString.lowercased(),
+            let nonce = UUID().uuidString.lowercased()
+            let request: [String: Any] = ["sessionId": sessionId, "nonce": nonce,
                                           "created": Date().timeIntervalSince1970]
             guard let data = try? JSONSerialization.data(withJSONObject: request),
                   (try? data.write(to: requestFile, options: .atomic)) != nil else {
@@ -290,7 +300,17 @@ final class Model: ObservableObject {
             guard let url = URL(string: "dsh://open"), NSWorkspace.shared.open(url) else {
                 notify("无法打开 DSH"); return
             }
-            lastOpenedThread = task.id; writeDiagnostics()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                guard let self else { return }
+                if let pendingData = try? Data(contentsOf: requestFile),
+                   let pending = try? JSONSerialization.jsonObject(with: pendingData) as? [String: Any],
+                   pending["nonce"] as? String == nonce {
+                    self.notify("DSH 已打开，仍在等待会话切换")
+                } else if !FileManager.default.fileExists(atPath: requestFile.path) {
+                    self.lastOpenedThread = task.id
+                    self.writeDiagnostics()
+                }
+            }
             return
         }
         guard let url = task.threadURL else {

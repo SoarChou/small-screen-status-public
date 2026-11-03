@@ -21,6 +21,33 @@ enum SelfTests {
         check(DisplayOption.selectedIndex(displays, preferred: "Missing") == nil, "Disconnected explicit display covered another screen")
         check(DisplayOption.selectedIndex(Array(displays.prefix(1)), preferred: nil) == nil, "Automatic display choice covered the main screen")
         check(DisplayOption.selectedIndex(displays, preferred: "Main") == 0, "Explicit main display choice was rejected")
+        let screenFrame = NSRect(x: -1600, y: -200, width: 1600, height: 900)
+        let visibleFrame = NSRect(x: -1600, y: -180, width: 1600, height: 850)
+        check(WindowPlacement().frame(screen: screenFrame, visible: visibleFrame) == screenFrame, "Full-screen placement changed screen bounds")
+        let cornerFrame = WindowPlacement(fullScreen: false, fraction: 0.6, anchor: "top-right").frame(screen: screenFrame, visible: visibleFrame)
+        check(visibleFrame.contains(cornerFrame) && abs(cornerFrame.maxX - (visibleFrame.maxX - 12)) < 1
+              && abs(cornerFrame.maxY - (visibleFrame.maxY - 12)) < 1, "Corner placement escaped visible display bounds")
+        let tinyFrame = NSRect(x: 100, y: 100, width: 300, height: 180)
+        check(tinyFrame.contains(WindowPlacement(fullScreen: false, fraction: 0.95, anchor: "bottom-left").frame(screen: tinyFrame, visible: tinyFrame)), "Window placement overflowed a small display")
+        let fakeApp = URL(fileURLWithPath: "/Applications/Example.app")
+        let startupConfig = LoginStartup.configuration(app: fakeApp)
+        check(LoginStartup.owned(startupConfig, app: fakeApp)
+              && !LoginStartup.owned(startupConfig, app: URL(fileURLWithPath: "/Applications/Other.app")), "Startup ownership check targeted another app")
+        check(startupConfig["RunAtLoad"] as? Bool == true && startupConfig["KeepAlive"] == nil, "Startup config should independently launch once at login")
+        let agentsRoot = root.appendingPathComponent("LaunchAgents")
+        var launchCalls: [[String]] = []
+        try! LoginStartup.setEnabled(true, app: Bundle.main.bundleURL, agents: agentsRoot) { args in launchCalls.append(args); return 0 }
+        let loginPath = agentsRoot.appendingPathComponent("\(LoginStartup.label).plist")
+        check(FileManager.default.fileExists(atPath: loginPath.path) && launchCalls.contains { $0.first == "bootstrap" }, "Enabling startup did not write and register the login item")
+        let savedLogin = try! Data(contentsOf: loginPath)
+        var refused = false
+        do { try LoginStartup.setEnabled(true, app: Bundle.main.bundleURL, agents: agentsRoot) { $0.first == "bootstrap" ? 1 : 0 } }
+        catch { refused = true }
+        check(refused && (try! Data(contentsOf: loginPath)) == savedLogin, "Failed startup registration did not restore its previous configuration")
+        let unrelated = agentsRoot.appendingPathComponent("other.app.plist")
+        try! Data("unrelated".utf8).write(to: unrelated)
+        try! LoginStartup.setEnabled(false, app: Bundle.main.bundleURL, agents: agentsRoot) { _ in 0 }
+        check(!FileManager.default.fileExists(atPath: loginPath.path) && FileManager.default.fileExists(atPath: unrelated.path), "Disabling startup left its config or touched another app")
         let a = TaskInfo(id: "11111111-1111-4111-8111-111111111111", title: "A", source: "Codex", status: "running",
                          stage: "思考中", started: 900, updated: 1000, finished: nil, detail: "进展", progress: nil)
         let b = TaskInfo(id: "22222222-2222-4222-8222-222222222222", title: "B", source: "Codex", status: "running",
@@ -55,6 +82,8 @@ enum SelfTests {
         model.tick(at: Date(timeIntervalSince1970: 1300))
         check(model.pinnedID == nil, "Pin failed to expire")
         check(Hotkeys.operation(101)?.0 == "open" && Hotkeys.operation(209)?.1 == 9 && Hotkeys.operation(999) == nil, "Shortcut routing incorrect")
+        check(Hotkeys.operation(302)?.0 == "note" && Hotkeys.operation(303)?.0 == "results"
+              && Hotkeys.operation(304)?.0 == "remind" && Hotkeys.operation(305)?.0 == "timer", "Quick action shortcuts routed incorrectly")
         check(Set(Hotkeys.numberCodes).count == 9, "Position key codes overlap")
         model.now = Date(timeIntervalSince1970: 2000)
         model.startTimer("focus", minutes: 5, at: model.now)
@@ -175,6 +204,35 @@ enum SelfTests {
         composing.setMarkedText("中文", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         composing.unmarkText()
         check(!composing.hasMarkedText() && committedText == "中文", "IME commit failed to publish the final text")
+        let workRoot = root.appendingPathComponent("workbench")
+        try! FileManager.default.createDirectory(at: workRoot, withIntermediateDirectories: true)
+        let work = Model(root: workRoot, defaults: defaults)
+        work.now = time; work.ingest(snapshot([a,b]))
+        work.editQuickDraft("实验现象与下一步")
+        check(work.saveQuickNote(taskID: b.id), "Quick note failed to save")
+        check(work.workbench.notes.first?.task?.id == b.id && work.workbench.draft.isEmpty, "Note lost task association or retained draft")
+        work.addReminder(task: WorkTask(a), minutes: 5)
+        work.now = time.addingTimeInterval(301); work.checkReminders()
+        check(work.alerts.active?.kind == .reminder && work.pendingReminders.isEmpty, "Reminder missed its deadline")
+        work.alerts.dismiss(now: work.now); work.checkReminders()
+        check(work.alerts.active == nil, "Delivered reminder repeated")
+        var produced = done; produced.artifacts = ["/tmp/report.pdf"]
+        work.ingest(snapshot([produced,b])); work.ingest(snapshot([produced,b]))
+        check(work.workbench.results.count == 1 && work.workbench.results.first?.paths == ["/tmp/report.pdf"], "Completion inbox duplicated or lost artifact")
+        work.markResultRead(work.workbench.results[0].id)
+        let reloaded = Model(root: workRoot, defaults: defaults); reloaded.loadWorkbench()
+        check(reloaded.workbench.notes.count == 1 && reloaded.unreadResults == 0 && reloaded.pendingReminders.isEmpty, "Workbench state failed to restore")
+        let historical = Model(root: workRoot.appendingPathComponent("absent"), defaults: defaults)
+        historical.ingest(snapshot([produced]))
+        check(historical.workbench.results.isEmpty, "Historical completions replayed into the inbox")
+        work.alerts.clear(); work.syncAttention()
+        work.quickPanel = nil
+        Hotkeys(model: work).perform(302)
+        check(work.quickPanel == "note", "Global note action did not open quick note")
+        work.quickPanel = nil
+        work.alerts.enqueue(AttentionAlert(id: "urgent-test", kind: .question, title: "Q", targetID: a.id, created: work.now), now: work.now)
+        work.syncAttention(); Hotkeys(model: work).perform(305)
+        check(work.quickPanel == nil && work.attentionAlert?.kind == .question, "Quick action displaced an urgent question")
         print("Native behavior checks: \(count) passed")
     }
 }

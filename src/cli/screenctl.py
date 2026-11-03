@@ -15,6 +15,7 @@ def main():
     sub = p.add_subparsers(dest='action', required=True)
     r = sub.add_parser('run')
     r.add_argument('--title', required=True)
+    r.add_argument('--artifact', action='append', default=[], help='完成产物路径，可重复指定')
     r.add_argument('command', nargs=argparse.REMAINDER)
     u = sub.add_parser('progress')
     u.add_argument('percent', type=float)
@@ -40,6 +41,8 @@ def main():
     now = time.time()
     task = dict(id=tid, title=args.title, source='脚本', status='running', stage='执行中',
                 started=now, updated=now, detail='', progress=None, pid=os.getpid())
+    if args.artifact:
+        task['artifacts'] = list(dict.fromkeys(str(Path(value).expanduser().resolve()) for value in args.artifact))
     atomic_json(path, task)
     env = dict(os.environ, SMALL_SCREEN_TASK_ID=tid)
     try:
